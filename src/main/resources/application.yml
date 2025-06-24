@@ -7,3 +7,105 @@ spring:
 
 logging:
   config: classpath:logback-plus.xml
+---
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,*  # 仅暴露 health 和 info，如果想暴露全部用 "*"
+  endpoint:
+    health:
+      show-details: always   # 显示详细健康信息，可选：never, when-authorized, always
+
+# Bus配置
+bus:
+  enabled: true
+---
+# Redis配置
+spring:
+  data:
+    redis:
+      database: 14
+      host: 118.195.138.5
+      password: liveRedis123.@
+      port: 6379
+      timeout: 10000
+      repositories:
+        enabled: false
+      lettuce:
+        pool:
+          max-active: 10
+          max-wait: 10000
+          max-idle: 10
+          min-idle: 5
+    redisson:
+      enabled: false
+      single-server-config:
+        address: redis://${spring.data.redis.host}:${spring.data.redis.port}
+        password: ${spring.data.redis.password}
+
+---
+# Jackson序列化配置
+spring:
+  jackson:
+    property-naming-strategy: SNAKE_CASE  # 可选：使用下划线命名
+    # property-naming-strategy: KEBAB_CASE  # 可选：使用短横线命名
+    # property-naming-strategy: LOWER_CAMEL_CASE  # 默认：驼峰命名
+  
+  # RabbitMQ配置
+  rabbitmq:
+    host: 10.1.13.67
+    port: 5672
+    username: admin
+    password: Admin@123!
+    virtual-host: /
+    connection-timeout: 60000  # 连接超时60秒
+    requested-heartbeat: 30    # 心跳间隔30秒
+    publisher-confirm-type: correlated  # 启用确认模式
+    publisher-returns: true            # 启用返回模式
+    template:
+      mandatory: true                  # 强制模式
+    listener:
+      simple:
+        acknowledge-mode: manual       # 手动确认模式
+        prefetch: 10                   # 预取数量
+        retry:
+          enabled: true                # 启用重试
+          initial-interval: 3000       # 初始重试间隔
+          max-attempts: 3              # 最大重试次数
+          multiplier: 2                # 重试间隔倍数
+
+---
+# Goya事件总线配置
+goya:
+  event:
+    enabled: true
+    default-topic: "goya-security-events"
+    metrics-enabled: true
+    health-enabled: true
+    async:
+      enabled: true
+      core-pool-size: 4
+      max-pool-size: 20
+      queue-capacity: 500
+      thread-name-prefix: "goya-event-"
+    auto-registration:
+      annotation-enabled: true
+      interface-enabled: true
+      print-registered-listeners: true
+    # RabbitMQ传输配置
+    rabbitmq:
+      enabled: true                           # 启用RabbitMQ传输
+      default-exchange-name: "goya.events.topic"
+      exchange-type: "topic"
+      durable-exchange: true
+      auto-delete-exchange: false
+      durable-queue: true
+      auto-delete-queue: false
+      exclusive-queue: false
+      queue-prefix: "goya.events."
+      acknowledgment-mode: "manual"
+      prefetch-count: 10
+      message-ttl: 3600000                    # 1小时TTL
+      retry-attempts: 3
+      retry-interval: 5000

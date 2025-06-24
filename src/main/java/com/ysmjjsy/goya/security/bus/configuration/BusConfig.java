@@ -1,0 +1,135 @@
+package com.ysmjjsy.goya.security.bus.configuration;
+
+import com.ysmjjsy.goya.security.bus.bus.DefaultIEventBus;
+import com.ysmjjsy.goya.security.bus.bus.IEventBus;
+import com.ysmjjsy.goya.security.bus.context.EventListenerAutoRegistrar;
+import com.ysmjjsy.goya.security.bus.properties.BusProperties;
+import com.ysmjjsy.goya.security.bus.route.DefaultEventRouter;
+import com.ysmjjsy.goya.security.bus.route.EventRouter;
+import com.ysmjjsy.goya.security.bus.serializer.EventSerializer;
+import com.ysmjjsy.goya.security.bus.serializer.JacksonEventSerializer;
+import com.ysmjjsy.goya.security.bus.transport.EventTransport;
+import com.ysmjjsy.goya.security.bus.transport.RabbitMQEventTransport;
+import com.ysmjjsy.goya.security.bus.transport.RedisEventTransport;
+import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+import org.springframework.amqp.rabbit.core.RabbitAdmin;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.listener.RedisMessageListenerContainer;
+
+import java.util.List;
+
+/**
+ * <p>事件消息总线配置</p>
+ *
+ * @author goya
+ * @since 2025/6/24 14:37
+ */
+@Slf4j
+@RequiredArgsConstructor
+@Configuration(proxyBeanMethods = false)
+@EnableConfigurationProperties(BusProperties.class)
+@ConditionalOnProperty(prefix = "bus", name = "enabled", havingValue = "true", matchIfMissing = true)
+public class BusConfig {
+
+    @PostConstruct
+    public void init() {
+        log.info("config [bus] | load the bus configuration");
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public EventSerializer eventSerializer() {
+        return new JacksonEventSerializer();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public EventRouter eventRouter(BusProperties busProperties) {
+        return new DefaultEventRouter(busProperties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public IEventBus iEventBus(ApplicationEventPublisher applicationEventPublisher,
+                               List<EventTransport> eventTransports,
+                               EventRouter eventRouter) {
+        log.debug("config [bus] | load the bus: defaultIEventBus");
+        return new DefaultIEventBus(applicationEventPublisher, eventTransports, eventRouter);
+    }
+
+    /**
+     * 智能事件监听器自动注册器
+     */
+    @Bean
+    public EventListenerAutoRegistrar eventListenerAutoRegistrar(BusProperties busProperties) {
+        log.info("Enabling smart event listener auto-registration using SmartInitializingSingleton");
+        return new EventListenerAutoRegistrar(busProperties);
+    }
+
+    @Bean
+    public RedisMessageListenerContainer redisMessageListenerContainer(RedisConnectionFactory connectionFactory) {
+        RedisMessageListenerContainer container = new RedisMessageListenerContainer();
+        container.setConnectionFactory(connectionFactory);
+        log.trace("[Goya] |- Bean [Redis Message Listener Container] Configure.");
+        return container;
+    }
+
+    @Bean
+    public RedisEventTransport redisEventTransport(RedisTemplate<String, String> redisTemplate,
+                                                   EventSerializer eventSerializer,
+                                                   @Qualifier("redisMessageListenerContainer") RedisMessageListenerContainer messageListenerContainer) {
+        log.info("Creating Redis event transport");
+        RedisEventTransport transport = new RedisEventTransport(redisTemplate, eventSerializer, messageListenerContainer);
+        transport.start();
+        return transport;
+    }
+
+    /**
+     * RabbitMQ 管理器
+     * 用于声明和管理RabbitMQ资源（交换器、队列、绑定等）
+     */
+    @Bean
+    public RabbitAdmin rabbitAdmin(ConnectionFactory connectionFactory) {
+        RabbitAdmin admin = new RabbitAdmin(connectionFactory);
+
+        // 设置自动启动
+        admin.setAutoStartup(true);
+
+        log.info("Created RabbitAdmin for event transport");
+        return admin;
+    }
+
+    /**
+     * RabbitMQ 事件传输
+     * 启动时自动启动传输服务
+     */
+    @Bean
+    public RabbitMQEventTransport rabbitMQEventTransport(RabbitTemplate rabbitTemplate,
+                                                         RabbitAdmin rabbitAdmin,
+                                                         ConnectionFactory connectionFactory,
+                                                         EventSerializer eventSerializer,
+                                                         BusProperties busProperties) {
+        log.info("Creating RabbitMQ event transport with exchange: {}",
+                busProperties.getRabbitmq().getDefaultExchangeName());
+
+        RabbitMQEventTransport transport = new RabbitMQEventTransport(
+                rabbitTemplate, rabbitAdmin, connectionFactory, eventSerializer, busProperties);
+
+        // 启动传输服务
+        transport.start();
+
+        return transport;
+    }
+}
