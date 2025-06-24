@@ -1,0 +1,9 @@
+server:
+  port: 8118
+spring:
+  docker:
+    compose:
+      enabled: false
+
+logging:
+  config: classpath:logback-plus.xml
