@@ -20,6 +20,28 @@ management:
 # Bus配置
 bus:
   enabled: true
+  default-topic: "bus-event-default"
+  default-routing-strategy: remote_only
+  default-remote-type: rabbitmq
+  # RabbitMQ传输配置
+  rabbitmq:
+    enabled: true                           # 启用RabbitMQ传输
+    default-exchange-name: "goya.events.topic"
+    exchange-type: "topic"
+    durable-exchange: true
+    auto-delete-exchange: false
+    durable-queue: true
+    auto-delete-queue: false
+    exclusive-queue: false
+    queue-prefix: "goya.events."
+    acknowledgment-mode: "manual"
+    prefetch-count: 10
+    message-ttl: 3600000                    # 1小时TTL (毫秒)
+    dead-letter-exchange: "goya.events.dead-letter"  # 死信交换器
+    retry-attempts: 3                       # 重试次数
+    retry-interval: 5000                    # 重试延迟间隔 (毫秒)
+    auto-cleanup-conflicts: true            # 自动清理冲突队列
+
 ---
 # Redis配置
 spring:
@@ -76,36 +98,3 @@ spring:
           multiplier: 2                # 重试间隔倍数
 
 ---
-# Goya事件总线配置
-goya:
-  event:
-    enabled: true
-    default-topic: "goya-security-events"
-    metrics-enabled: true
-    health-enabled: true
-    async:
-      enabled: true
-      core-pool-size: 4
-      max-pool-size: 20
-      queue-capacity: 500
-      thread-name-prefix: "goya-event-"
-    auto-registration:
-      annotation-enabled: true
-      interface-enabled: true
-      print-registered-listeners: true
-    # RabbitMQ传输配置
-    rabbitmq:
-      enabled: true                           # 启用RabbitMQ传输
-      default-exchange-name: "goya.events.topic"
-      exchange-type: "topic"
-      durable-exchange: true
-      auto-delete-exchange: false
-      durable-queue: true
-      auto-delete-queue: false
-      exclusive-queue: false
-      queue-prefix: "goya.events."
-      acknowledgment-mode: "manual"
-      prefetch-count: 10
-      message-ttl: 3600000                    # 1小时TTL
-      retry-attempts: 3
-      retry-interval: 5000

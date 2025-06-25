@@ -57,6 +57,8 @@ public abstract class AbstractIEventBus implements IEventBus {
         try {
             EventRoutingDecision route = eventRouter.route(event);
             event.topic(route.getTopic());
+            event.routingStrategy(route.getStrategy());
+            event.remoteType(route.getRemoteType());
             // 本地处理
             resultBuilder = localPublish(event, route, resultBuilder, isAsync, phase);
         } catch (Exception e) {

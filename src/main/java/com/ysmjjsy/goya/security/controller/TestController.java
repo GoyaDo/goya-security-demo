@@ -1,34 +1,40 @@
 package com.ysmjjsy.goya.security.controller;
 
 import com.ysmjjsy.goya.security.bus.bus.IEventBus;
-import com.ysmjjsy.goya.security.bus.enums.BusRemoteType;
 import com.ysmjjsy.goya.security.bus.enums.EventRoutingStrategy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * <p></p>
+ * <p>测试控制器</p>
  *
  * @author goya
- * @since 2025/6/24 14:55
+ * @since 2025/6/24 16:44
  */
+@Slf4j
 @RestController
 @RequestMapping("/test")
 @RequiredArgsConstructor
-@Slf4j
 public class TestController {
 
-    private final IEventBus iEventBus;
+    private final IEventBus eventBus;
 
-    @RequestMapping("test")
-    public String test() {
-        TestEvent testEvent = new TestEvent("test");
-        testEvent.routingStrategy(EventRoutingStrategy.REMOTE_ONLY);
-        testEvent.topic("test");
-        testEvent.remoteType(BusRemoteType.RABBITMQ);
-        iEventBus.publish(testEvent);
-        return "test";
+    @GetMapping("/hello")
+    public String hello() {
+        return "Hello Goya Security!";
+    }
+
+    @GetMapping("/event")
+    public String publishEvent() {
+        TestEvent event = new TestEvent("test");
+        event.routingStrategy(EventRoutingStrategy.REMOTE_ONLY);
+        event.topic("test");
+
+        // 发布事件
+        eventBus.publish(event);
+        return "Publish Success!";
     }
 }

@@ -10,6 +10,7 @@ import com.ysmjjsy.goya.security.bus.serializer.EventSerializer;
 import com.ysmjjsy.goya.security.bus.serializer.JacksonEventSerializer;
 import com.ysmjjsy.goya.security.bus.transport.EventTransport;
 import com.ysmjjsy.goya.security.bus.transport.RabbitMQEventTransport;
+import com.ysmjjsy.goya.security.bus.transport.RabbitMQManagementTool;
 import com.ysmjjsy.goya.security.bus.transport.RedisEventTransport;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -101,6 +102,7 @@ public class BusConfig {
      * 用于声明和管理RabbitMQ资源（交换器、队列、绑定等）
      */
     @Bean
+    @ConditionalOnProperty(prefix = "bus.rabbitmq", name = "enabled", havingValue = "true")
     public RabbitAdmin rabbitAdmin(ConnectionFactory connectionFactory) {
         RabbitAdmin admin = new RabbitAdmin(connectionFactory);
 
@@ -116,20 +118,32 @@ public class BusConfig {
      * 启动时自动启动传输服务
      */
     @Bean
+    @ConditionalOnProperty(prefix = "bus.rabbitmq", name = "enabled", havingValue = "true")
     public RabbitMQEventTransport rabbitMQEventTransport(RabbitTemplate rabbitTemplate,
                                                          RabbitAdmin rabbitAdmin,
                                                          ConnectionFactory connectionFactory,
                                                          EventSerializer eventSerializer,
-                                                         BusProperties busProperties) {
+                                                         BusProperties busProperties,
+                                                         @Qualifier("rabbitMQManagementTool") RabbitMQManagementTool managementTool) {
         log.info("Creating RabbitMQ event transport with exchange: {}",
                 busProperties.getRabbitmq().getDefaultExchangeName());
 
         RabbitMQEventTransport transport = new RabbitMQEventTransport(
-                rabbitTemplate, rabbitAdmin, connectionFactory, eventSerializer, busProperties);
+                rabbitTemplate, rabbitAdmin, connectionFactory, eventSerializer, busProperties,managementTool);
 
         // 启动传输服务
         transport.start();
 
         return transport;
+    }
+
+    /**
+     * RabbitMQ 管理工具
+     */
+    @Bean("rabbitMQManagementTool")
+    @ConditionalOnProperty(prefix = "bus.rabbitmq", name = "enabled", havingValue = "true")
+    public RabbitMQManagementTool rabbitMQManagementTool(RabbitAdmin rabbitAdmin, BusProperties busProperties) {
+        log.info("Creating RabbitMQ management tool");
+        return new RabbitMQManagementTool(rabbitAdmin, busProperties);
     }
 }

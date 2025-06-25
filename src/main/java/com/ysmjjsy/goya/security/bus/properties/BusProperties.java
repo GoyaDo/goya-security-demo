@@ -126,5 +126,10 @@ public class BusProperties implements Serializable {
          * 重试延迟间隔 (毫秒)
          */
         private long retryInterval = 5000;
+
+        /**
+         * 自动清理冲突队列
+         */
+        private boolean autoCleanupConflicts = true;
     }
 }
