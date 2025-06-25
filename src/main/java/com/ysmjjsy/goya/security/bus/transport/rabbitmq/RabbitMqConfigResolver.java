@@ -43,7 +43,7 @@ public class RabbitMqConfigResolver {
                 .autoDeleteExchange(annotation.autoDeleteExchange())
                 
                 // 队列配置
-                .queueName(annotation.queueName())
+                .queueName(getValueOrDefault(annotation.queueName(),topic))
                 .durableQueue(annotation.durableQueue())
                 
                 // 消费者配置
@@ -57,8 +57,7 @@ public class RabbitMqConfigResolver {
                 .priority(annotation.priority())
                 .correlationId(annotation.correlationId())
                 .replyTo(annotation.replyTo())
-                .deliveryMode(0) // 注解中不设置传递模式
-                
+
                 // 重试配置
                 .retryAttempts(annotation.retryAttempts() > 0 ? annotation.retryAttempts() : globalConfig.getRetryAttempts())
                 .retryInterval(annotation.retryInterval() > 0 ? annotation.retryInterval() : globalConfig.getRetryInterval())
@@ -90,7 +89,7 @@ public class RabbitMqConfigResolver {
                 .autoDeleteExchange(globalConfig.isAutoDeleteExchange())
                 
                 // 队列配置（事件发送时不需要）
-                .queueName("")
+                .queueName(event.getTopic())
                 .durableQueue(globalConfig.isDurableQueue())
                 
                 // 消费者配置（事件发送时不需要）

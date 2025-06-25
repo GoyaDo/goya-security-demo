@@ -55,11 +55,6 @@ public class RabbitMQEventMessageListener<T extends IEvent> implements ChannelAw
             // 调用监听器处理事件
             processEvent(event);
 
-            // 根据确认模式决定是否手动确认消息
-            if (manualAck) {
-                acknowledgeMessage(channel, deliveryTag);
-            }
-
             log.debug("Successfully processed RabbitMQ event {} on topic '{}' (attempt {})",
                     event.getEventId(), topic, retryCount + 1);
 

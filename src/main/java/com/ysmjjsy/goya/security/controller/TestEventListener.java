@@ -1,7 +1,6 @@
 package com.ysmjjsy.goya.security.controller;
 
 import com.ysmjjsy.goya.security.bus.annotation.IListener;
-import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMqConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -19,10 +18,24 @@ public class TestEventListener {
     /**
      * 基础的事件监听器，使用简单的队列配置
      */
-    @IListener(topic = "test", rabbitmq = @RabbitMqConfig(
-            queueName = "test-simple-queue"
-    ))
+    @IListener(topic = "test")
     public void onTestEvent(TestEvent event) {
+        log.info("接收到基础测试事件: {}", event);
+    }
+
+    /**
+     * 基础的事件监听器，使用简单的队列配置
+     */
+    @IListener(topic = "test1")
+    public void onTestEvent1(TestEvent event) {
+        log.info("接收到基础测试事件: {}", event);
+    }
+
+    /**
+     * 基础的事件监听器，使用简单的队列配置
+     */
+    @IListener(topic = "test3")
+    public void onTestEvent3(TestEvent event) {
         log.info("接收到基础测试事件: {}", event);
     }
 }

@@ -38,8 +38,9 @@ public class TestController {
                 .topic("test")
                 .routingStrategy(EventRoutingStrategy.REMOTE_ONLY)
                 ;
+        event.setDelayMillis(1000);
 
-        event.setRoutingKey("test-simple-queue");
+//        event.setRoutingKey("test-simple-queue");
 
         eventBus.publish(event);
         return "Basic Event Published Successfully!";

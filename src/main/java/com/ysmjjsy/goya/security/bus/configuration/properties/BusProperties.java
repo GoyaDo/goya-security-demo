@@ -135,5 +135,39 @@ public class BusProperties implements Serializable {
          * 自动清理冲突队列
          */
         private boolean autoCleanupConflicts = true;
+
+        // ===== 延迟队列配置 =====
+
+        /**
+         * 是否启用延迟队列功能
+         */
+        private boolean delayEnabled = true;
+
+        /**
+         * 延迟交换器名称
+         */
+        private String delayExchangeName = "bus.delay.exchange";
+
+        /**
+         * 延迟队列前缀
+         */
+        private String delayQueuePrefix = "bus.delay";
+
+        /**
+         * 最大延迟时间（毫秒），超过此时间的延迟消息将被拒绝
+         */
+        private long maxDelayMillis = 24 * 60 * 60 * 1000L; // 24小时
+
+        /**
+         * 延迟队列自动清理间隔（秒）
+         * 定期清理不再使用的延迟队列，0表示不清理
+         */
+        private long delayQueueCleanupInterval = 3600; // 1小时
+
+        /**
+         * 延迟队列空闲时间阈值（秒）
+         * 超过此时间没有消息的延迟队列将被清理
+         */
+        private long delayQueueIdleTimeout = 7200; // 2小时
     }
 }

@@ -11,10 +11,7 @@ import com.ysmjjsy.goya.security.bus.route.EventRouter;
 import com.ysmjjsy.goya.security.bus.serializer.EventSerializer;
 import com.ysmjjsy.goya.security.bus.serializer.JacksonEventSerializer;
 import com.ysmjjsy.goya.security.bus.transport.EventTransport;
-import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMQEventTransport;
-import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMQManagementTool;
-import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMQRetryQueueListener;
-import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMqConfigResolver;
+import com.ysmjjsy.goya.security.bus.transport.rabbitmq.*;
 import com.ysmjjsy.goya.security.bus.transport.redis.RedisEventTransport;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -94,7 +91,7 @@ public class BusConfiguration {
 
     @ConditionalOnProperty(prefix = "bus.redis", name = "enabled", havingValue = "true")
     @Configuration(proxyBeanMethods = false)
-    static class RedisBusConfiguration{
+    static class RedisBusConfiguration {
         @Bean
         public RedisMessageListenerContainer redisMessageListenerContainer(RedisConnectionFactory connectionFactory) {
             RedisMessageListenerContainer container = new RedisMessageListenerContainer();
@@ -116,7 +113,7 @@ public class BusConfiguration {
 
     @ConditionalOnProperty(prefix = "bus.rabbitmq", name = "enabled", havingValue = "true")
     @Configuration(proxyBeanMethods = false)
-    static class RabbitMqBusConfiguration{
+    static class RabbitMqBusConfiguration {
 
         /**
          * RabbitMQ 管理器
@@ -140,6 +137,12 @@ public class BusConfiguration {
             return new RabbitMqConfigResolver(busProperties);
         }
 
+        @Bean
+        @ConditionalOnMissingBean
+        public DelayQueueManager delayQueueManager(RabbitAdmin rabbitAdmin, BusProperties busProperties) {
+            return new DelayQueueManager(rabbitAdmin, busProperties);
+        }
+
         /**
          * RabbitMQ 事件传输
          * 启动时自动启动传输服务
@@ -152,12 +155,13 @@ public class BusConfiguration {
                                                              EventSerializer eventSerializer,
                                                              BusProperties busProperties,
                                                              RabbitMqConfigResolver rabbitMqConfigResolver,
+                                                             DelayQueueManager delayQueueManager,
                                                              @Qualifier("rabbitMQManagementTool") RabbitMQManagementTool managementTool) {
             log.info("Creating RabbitMQ event transport with exchange: {}",
                     busProperties.getRabbitmq().getDefaultExchangeName());
 
             RabbitMQEventTransport transport = new RabbitMQEventTransport(
-                    rabbitTemplate, rabbitAdmin, connectionFactory, eventSerializer, busProperties, rabbitMqConfigResolver, managementTool);
+                    rabbitTemplate, rabbitAdmin, connectionFactory, eventSerializer, busProperties, rabbitMqConfigResolver, managementTool, delayQueueManager);
 
             // 启动传输服务
             transport.start();
@@ -168,7 +172,7 @@ public class BusConfiguration {
         @Bean
         @ConditionalOnMissingBean
         @ConditionalOnProperty(prefix = "bus.rabbitmq", name = "retry-queue", havingValue = "true")
-        public RabbitMQRetryQueueListener rabbitMQRetryQueueListener(RabbitTemplate rabbitTemplate){
+        public RabbitMQRetryQueueListener rabbitMQRetryQueueListener(RabbitTemplate rabbitTemplate) {
             return new RabbitMQRetryQueueListener(rabbitTemplate);
         }
 

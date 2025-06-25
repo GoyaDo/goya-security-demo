@@ -57,6 +57,7 @@ public class RabbitMQEventTransport implements EventTransport {
     private final RabbitMqConfigResolver configResolver;
 
     private final RabbitMQManagementTool managementTool;
+    private final DelayQueueManager delayQueueManager;
 
     private final Map<String, AbstractExchange> exchanges = new ConcurrentHashMap<>();
     private final Map<String, Queue> queues = new ConcurrentHashMap<>();
@@ -107,34 +108,124 @@ public class RabbitMQEventTransport implements EventTransport {
                             new EventHandleException(event.getEventId(), "Event is local event"));
                 }
 
-                // 解析配置
-                RabbitMqConfigModel config = resolveEventConfig(event);
-
-                // 序列化事件
-                String serializedEvent = eventSerializer.serialize(event);
-
-                // 获取有效的交换器和路由键
-                String exchangeName = config.getEffectiveExchange();
-                String routingKey = config.getEffectiveRoutingKey(event.getTopic());
-
-                // 确保交换器存在（如果指定了非默认交换器）
-                if (exchangeName != null) {
-                    getOrCreateExchangeWithConfig(config);
+                // 检查是否为延迟消息
+                if (event instanceof RabbitMqEvent && ((RabbitMqEvent<?>) event).isDelayEnabled()) {
+                    return sendDelayedEvent((RabbitMqEvent<?>) event);
                 }
 
-                // 发送消息 - 使用Spring Boot RabbitMQ的标准方式
-                rabbitTemplate.convertAndSend(exchangeName, routingKey, serializedEvent, message -> applyMessageProperties(message, event, config));
-
-                log.debug("Event sent to RabbitMQ exchange '{}' with routing key '{}': {}",
-                        exchangeName != null ? exchangeName : "default", routingKey, event.getEventId());
-
-                return TransportResult.success(getTransportType(), event.getTopic(), event.getEventId());
+                // 正常消息发送逻辑
+                return sendNormalEvent(event);
 
             } catch (Exception e) {
                 log.error("Failed to send event {} to RabbitMQ topic '{}'", event.getEventId(), event.getTopic(), e);
                 return TransportResult.failure(getTransportType(), event.getTopic(), event.getEventId(), e);
             }
         });
+    }
+
+    /**
+     * 发送延迟消息
+     */
+    private TransportResult sendDelayedEvent(RabbitMqEvent<?> event) {
+        try {
+            // 检查延迟队列功能是否启用
+            if (!delayQueueManager.isDelayEnabled()) {
+                log.warn("延迟队列功能未启用，将按正常消息发送: {}", event.getEventId());
+                return sendNormalEvent(event);
+            }
+
+            // 验证延迟时间
+            delayQueueManager.validateDelayTime(event.getDelayMillis());
+
+            // 序列化事件
+            String serializedEvent = eventSerializer.serialize(event);
+
+            // 获取目标交换器和路由键（延迟后要投递到的地方）
+            String targetExchange = event.getEffectiveDelayTargetExchange();
+            String targetRoutingKey = event.getEffectiveDelayTargetRoutingKey(event.getTopic());
+
+            // 获取延迟队列路由键
+            String delayRoutingKey = delayQueueManager.getDelayQueueRoutingKey(
+                event.getDelaySeconds(), targetExchange, targetRoutingKey);
+
+            // 发送到延迟交换器
+            String delayExchangeName = delayQueueManager.getDelayExchangeName();
+            rabbitTemplate.convertAndSend(delayExchangeName, delayRoutingKey, serializedEvent, 
+                message -> applyDelayedMessageProperties(message, event, targetExchange, targetRoutingKey));
+
+            log.info("延迟消息已发送到延迟队列: eventId={}, delayMillis={}, targetExchange={}, targetRoutingKey={}", 
+                event.getEventId(), event.getDelayMillis(), targetExchange, targetRoutingKey);
+
+            return TransportResult.success(getTransportType(), event.getTopic(), event.getEventId());
+
+        } catch (Exception e) {
+            log.error("发送延迟消息失败: eventId={}, delayMillis={}", event.getEventId(), event.getDelayMillis(), e);
+            throw e;
+        }
+    }
+
+    /**
+     * 发送正常消息（非延迟）
+     */
+    private TransportResult sendNormalEvent(IEvent<?> event) {
+        // 解析配置
+        RabbitMqConfigModel config = resolveEventConfig(event);
+
+        // 序列化事件
+        String serializedEvent = eventSerializer.serialize(event);
+
+        // 获取有效的交换器和路由键
+        String exchangeName = config.getEffectiveExchange();
+        String routingKey = config.getEffectiveRoutingKey(event.getTopic());
+
+        // 确保交换器存在（如果指定了非默认交换器）
+        if (exchangeName != null) {
+            getOrCreateExchangeWithConfig(config);
+        }
+
+        // 发送消息 - 使用Spring Boot RabbitMQ的标准方式
+        rabbitTemplate.convertAndSend(exchangeName, routingKey, serializedEvent, 
+            message -> applyMessageProperties(message, event, config));
+
+        log.debug("Event sent to RabbitMQ exchange '{}' with routing key '{}': {}",
+                exchangeName != null ? exchangeName : "default", routingKey, event.getEventId());
+
+        return TransportResult.success(getTransportType(), event.getTopic(), event.getEventId());
+    }
+
+    /**
+     * 应用延迟消息属性
+     */
+    private Message applyDelayedMessageProperties(Message message, RabbitMqEvent<?> event, 
+            String targetExchange, String targetRoutingKey) {
+        MessageProperties properties = message.getMessageProperties();
+
+        // 设置基础属性
+        properties.setContentType("application/json");
+        properties.setMessageId(event.getEventId());
+        properties.setTimestamp(new Date());
+        properties.setDeliveryMode(MessageDeliveryMode.PERSISTENT); // 延迟消息强制持久化
+
+        // 设置延迟相关头部信息
+        properties.setHeader("delay-enabled", true);
+        properties.setHeader("delay-millis", event.getDelayMillis());
+        properties.setHeader("original-topic", event.getTopic());
+        properties.setHeader("event-type", event.getEventType());
+        properties.setHeader("target-exchange", targetExchange);
+        properties.setHeader("target-routing-key", targetRoutingKey);
+
+        // 设置其他消息属性（优先级、关联ID等）
+        if (event.getPriority() > 0) {
+            properties.setPriority(event.getPriority());
+        }
+        if (org.apache.commons.lang3.StringUtils.isNotBlank(event.getCorrelationId())) {
+            properties.setCorrelationId(event.getCorrelationId());
+        }
+        if (org.apache.commons.lang3.StringUtils.isNotBlank(event.getReplyTo())) {
+            properties.setReplyTo(event.getReplyTo());
+        }
+
+        return message;
     }
 
     /**
@@ -583,7 +674,7 @@ public class RabbitMQEventTransport implements EventTransport {
             arguments.put("x-message-ttl", config.getMessageTtl());
         }
 
-        Queue queue = new Queue(queueName, config.isDurableQueue(), false, false, arguments);
+        Queue queue = new Queue(queueName, config.isDurableQueue(), config.isDurableQueue(), false, arguments);
         rabbitAdmin.declareQueue(queue);
         log.debug("Created queue with config: {}", queueName);
         return queue;
@@ -631,9 +722,7 @@ public class RabbitMQEventTransport implements EventTransport {
             return config.getFullQueueName();
         }
 
-        // 默认队列名称生成策略
-        String listenerName = listener.getClass().getSimpleName();
-        return topic + "." + listenerName;
+        return topic;
     }
 
     /**
