@@ -6,7 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * <p></p>
+ * <p>测试事件监听器</p>
+ * <p>演示如何使用增强的@IListener注解和RabbitMQ配置</p>
  *
  * @author goya
  * @since 2025/6/24 23:23
@@ -15,10 +16,13 @@ import org.springframework.stereotype.Component;
 @Component
 public class TestEventListener {
 
+    /**
+     * 基础的事件监听器，使用简单的队列配置
+     */
     @IListener(topic = "test", rabbitmq = @RabbitMqConfig(
-            queueName = "test"
+            queueName = "test-simple-queue"
     ))
-    public void onEvent(TestEvent event) {
-        log.error("接收到的event:{}", event);
+    public void onTestEvent(TestEvent event) {
+        log.info("接收到基础测试事件: {}", event);
     }
 }

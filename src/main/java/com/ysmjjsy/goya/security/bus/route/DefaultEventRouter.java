@@ -6,7 +6,7 @@ import com.ysmjjsy.goya.security.bus.domain.IEvent;
 import com.ysmjjsy.goya.security.bus.enums.BusRemoteType;
 import com.ysmjjsy.goya.security.bus.enums.EventRoutingStrategy;
 import com.ysmjjsy.goya.security.bus.enums.EventType;
-import com.ysmjjsy.goya.security.bus.properties.BusProperties;
+import com.ysmjjsy.goya.security.bus.configuration.properties.BusProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;

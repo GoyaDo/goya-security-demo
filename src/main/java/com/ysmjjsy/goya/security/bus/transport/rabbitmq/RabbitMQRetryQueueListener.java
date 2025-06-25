@@ -7,12 +7,9 @@ import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.rabbit.listener.api.ChannelAwareMessageListener;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 
 /**
  * RabbitMQ重试队列监听器
- * 
  * 处理延迟重试消息：
  * - 监听重试队列中的消息
  * - 将过期消息重新路由到原始队列
@@ -22,9 +19,7 @@ import org.springframework.stereotype.Component;
  * @since 2025/1/17
  */
 @Slf4j
-@Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(prefix = "bus.rabbitmq", name = "enabled", havingValue = "true")
 public class RabbitMQRetryQueueListener implements ChannelAwareMessageListener {
 
     private final RabbitTemplate rabbitTemplate;

@@ -1,4 +1,4 @@
-package com.ysmjjsy.goya.security.bus.properties;
+package com.ysmjjsy.goya.security.bus.configuration.properties;
 
 import com.ysmjjsy.goya.security.bus.enums.BusRemoteType;
 import com.ysmjjsy.goya.security.bus.enums.EventRoutingStrategy;
@@ -42,9 +42,23 @@ public class BusProperties implements Serializable {
     private BusRemoteType defaultRemoteType = BusRemoteType.RABBITMQ;
 
     /**
+     * Redis传输配置
+     */
+    private Redis redis = new Redis();
+
+    /**
      * RabbitMQ传输配置
      */
     private RabbitMQ rabbitmq = new RabbitMQ();
+
+    @Setter
+    @Getter
+    public static class Redis{
+        /**
+         * 是否启用Redis传输
+         */
+        private boolean enabled = false;
+    }
 
     /**
      * RabbitMQ传输配置
@@ -60,7 +74,7 @@ public class BusProperties implements Serializable {
         /**
          * 默认交换器名称
          */
-        private String defaultExchangeName = "goya.events.topic";
+        private String defaultExchangeName;
 
         /**
          * 交换器类型
@@ -83,19 +97,9 @@ public class BusProperties implements Serializable {
         private boolean durableQueue = true;
 
         /**
-         * 是否自动删除队列
+         * 是否持开启重试队列
          */
-        private boolean autoDeleteQueue = false;
-
-        /**
-         * 是否排他队列
-         */
-        private boolean exclusiveQueue = false;
-
-        /**
-         * 队列前缀
-         */
-        private String queuePrefix = "goya.events.";
+        private boolean retryQueue = true;
 
         /**
          * 消息确认模式

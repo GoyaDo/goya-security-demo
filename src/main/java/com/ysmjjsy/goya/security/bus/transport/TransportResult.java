@@ -134,10 +134,4 @@ public class TransportResult {
             return new TransportResult(this);
         }
     }
-
-    @Override
-    public String toString() {
-        return String.format("TransportResult{success=%s, transportType='%s', topic='%s', eventId='%s', sendTime=%s, message='%s'}", 
-                success, transportType, topic, eventId, sendTime, message);
-    }
 }

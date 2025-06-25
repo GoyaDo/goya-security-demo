@@ -4,6 +4,7 @@ import com.ysmjjsy.goya.security.bus.annotation.IListener;
 import com.ysmjjsy.goya.security.bus.domain.IEvent;
 import com.ysmjjsy.goya.security.bus.exception.EventHandleException;
 import com.ysmjjsy.goya.security.bus.listener.IEventListener;
+import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMqConfig;
 import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,13 +13,12 @@ import org.springframework.expression.spel.standard.SpelExpressionParser;
 import org.springframework.expression.spel.support.StandardEvaluationContext;
 import org.springframework.util.StringUtils;
 
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
 /**
  * 方法事件监听器适配器
  * 将标注@IListener的方法包装为IEventListener接口
- * 
+ * <p>
  * 注意：此类不应该被Spring自动扫描为Bean，它是动态创建的包装器
  *
  * @author goya
@@ -39,7 +39,7 @@ public class MethodIEventListenerWrapper implements IEventListener<IEvent> {
      */
     private final Expression conditionExpression;
 
-    private String topic;
+    private final String topic;
 
     public MethodIEventListenerWrapper(Object targetBean, Method targetMethod, IListener annotation, String topic) {
         this.targetBean = targetBean;
@@ -75,29 +75,11 @@ public class MethodIEventListenerWrapper implements IEventListener<IEvent> {
             logger.debug("Event {} processed successfully by method {}.{}",
                     event.getEventId(), targetBean.getClass().getSimpleName(), targetMethod.getName());
 
-        } catch (InvocationTargetException e) {
-            Throwable cause = e.getCause();
-            if (cause instanceof EventHandleException) {
-                throw (EventHandleException) cause;
-            } else {
-                throw new EventHandleException(
-                        event.getEventId(),
-                        getListenerIdentifier(),
-                        "Failed to process event in method listener",
-                        cause != null ? cause : e);
-            }
-        } catch (IllegalAccessException e) {
-            throw new EventHandleException(
-                    event.getEventId(),
-                    getListenerIdentifier(),
-                    "Cannot access event listener method",
-                    e);
         } catch (Exception e) {
             throw new EventHandleException(
                     event.getEventId(),
                     getListenerIdentifier(),
-                    "Unexpected error in event listener method",
-                    e);
+                    "Failed to process event in method listener", e);
         }
     }
 
@@ -110,9 +92,9 @@ public class MethodIEventListenerWrapper implements IEventListener<IEvent> {
 
         if (!evaluateTopic(event.getTopic())
                 && !evaluateTopic(topic)) {
-                logger.debug("Event {} skipped by topic: {}", event.getEventId(), annotation.topic());
-                return false;
-            }
+            logger.debug("Event {} skipped by topic: {}", event.getEventId(), annotation.topic());
+            return false;
+        }
 
         return true;
     }
@@ -120,6 +102,13 @@ public class MethodIEventListenerWrapper implements IEventListener<IEvent> {
     @Override
     public String topic() {
         return annotation.topic();
+    }
+
+    /**
+     * 获取RabbitMQ配置
+     */
+    public RabbitMqConfig getRabbitMqConfig() {
+        return annotation.rabbitmq();
     }
 
     private boolean evaluateTopic(String topic) {

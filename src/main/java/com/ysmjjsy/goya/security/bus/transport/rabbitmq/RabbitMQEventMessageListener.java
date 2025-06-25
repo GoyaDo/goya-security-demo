@@ -34,6 +34,7 @@ public class RabbitMQEventMessageListener<T extends IEvent> implements ChannelAw
     private final EventSerializer eventSerializer;
     private final String topic;
     private final RabbitMQEventTransport transport;
+    private final boolean manualAck;
 
     @Override
     public void onMessage(Message message, Channel channel) throws Exception {
@@ -54,8 +55,10 @@ public class RabbitMQEventMessageListener<T extends IEvent> implements ChannelAw
             // 调用监听器处理事件
             processEvent(event);
 
-            // 手动确认消息
-            acknowledgeMessage(channel, deliveryTag);
+            // 根据确认模式决定是否手动确认消息
+            if (manualAck) {
+                acknowledgeMessage(channel, deliveryTag);
+            }
 
             log.debug("Successfully processed RabbitMQ event {} on topic '{}' (attempt {})",
                     event.getEventId(), topic, retryCount + 1);
@@ -64,7 +67,9 @@ public class RabbitMQEventMessageListener<T extends IEvent> implements ChannelAw
             log.error("Failed to deserialize message on topic '{}' (messageId={}): {}", 
                     topic, messageId, e.getMessage(), e);
             // 序列化错误不重试，直接拒绝
-            rejectMessage(channel, deliveryTag, false);
+            if (manualAck) {
+                rejectMessage(channel, deliveryTag, false);
+            }
             
         } catch (EventHandleException e) {
             log.error("Business logic error handling event on topic '{}' (messageId={}): {}", 
@@ -128,7 +133,9 @@ public class RabbitMQEventMessageListener<T extends IEvent> implements ChannelAw
             handleRetryableException(message, channel, deliveryTag, e);
         } else {
             // 不重试的业务异常，直接拒绝
-            rejectMessage(channel, deliveryTag, false);
+            if (manualAck) {
+                rejectMessage(channel, deliveryTag, false);
+            }
             // 可选：发送到死信队列
             transport.handleRetry(message, topic, e);
         }
@@ -149,7 +156,9 @@ public class RabbitMQEventMessageListener<T extends IEvent> implements ChannelAw
     private void handleRetryableException(Message message, Channel channel, long deliveryTag, Exception e) 
             throws Exception {
         // 拒绝消息但不重新入队（由重试机制处理）
-        rejectMessage(channel, deliveryTag, false);
+        if (manualAck) {
+            rejectMessage(channel, deliveryTag, false);
+        }
         
         // 通过传输层处理重试
         transport.handleRetry(message, topic, e);

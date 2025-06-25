@@ -134,10 +134,10 @@ public class ListenerRegistryManager {
      * 打印注册状态摘要
      */
     public void printRegistrySummary() {
-        log.info("=== 监听器注册状态摘要 ===");
-        log.info("本地事件类型: {}", localEventTypes.size());
-        log.info("远程事件类型: {}", remoteEventTypes.size());
-        log.info("总事件类型: {}", getAllRegisteredEventTypes().size());
+        log.debug("=== 监听器注册状态摘要 ===");
+        log.debug("本地事件类型: {}", localEventTypes.size());
+        log.debug("远程事件类型: {}", remoteEventTypes.size());
+        log.debug("总事件类型: {}", getAllRegisteredEventTypes().size());
         
         if (log.isDebugEnabled()) {
             log.debug("本地事件类型详情: {}", localEventTypes.stream()

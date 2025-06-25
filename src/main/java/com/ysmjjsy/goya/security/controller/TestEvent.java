@@ -1,8 +1,7 @@
 package com.ysmjjsy.goya.security.controller;
 
-import com.ysmjjsy.goya.security.bus.domain.IEvent;
-import lombok.EqualsAndHashCode;
-import lombok.ToString;
+import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMqEvent;
+import lombok.*;
 import lombok.experimental.SuperBuilder;
 
 /**
@@ -11,14 +10,14 @@ import lombok.experimental.SuperBuilder;
  * @author goya
  * @since 2025/6/24 23:22
  */
+@Getter
+@Setter
 @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = true)
 @SuperBuilder
-public class TestEvent extends IEvent<TestEvent> {
+@NoArgsConstructor
+@AllArgsConstructor
+public class TestEvent extends RabbitMqEvent<TestEvent> {
 
-    private final String message;
-
-    public TestEvent(String message) {
-        this.message = message;
-    }
+    private String message;
 }

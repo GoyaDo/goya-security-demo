@@ -6,7 +6,7 @@ import com.ysmjjsy.goya.security.bus.domain.IEvent;
 import com.ysmjjsy.goya.security.bus.listener.IEventListener;
 import com.ysmjjsy.goya.security.bus.processor.EventTypeResolver;
 import com.ysmjjsy.goya.security.bus.processor.MethodIEventListenerWrapper;
-import com.ysmjjsy.goya.security.bus.properties.BusProperties;
+import com.ysmjjsy.goya.security.bus.configuration.properties.BusProperties;
 import com.ysmjjsy.goya.security.bus.registry.ListenerRegistryManager;
 import com.ysmjjsy.goya.security.bus.transport.EventTransport;
 import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMqConfig;
@@ -61,7 +61,7 @@ public class EventListenerAutoRegistrar implements SmartInitializingSingleton, A
 
     @Override
     public void afterSingletonsInstantiated() {
-        log.info("=== 开始事件监听器自动注册 ===");
+        log.debug("=== 开始事件监听器自动注册 ===");
 
         try {
             // 获取必要的组件
@@ -73,7 +73,7 @@ public class EventListenerAutoRegistrar implements SmartInitializingSingleton, A
                 return;
             }
 
-            log.info("发现 {} 个事件传输组件: {}", eventTransports.size(),
+            log.debug("发现 {} 个事件传输组件: {}", eventTransports.size(),
                     eventTransports.stream().map(EventTransport::getTransportType).collect(Collectors.toList()));
 
             // 注册监听器
@@ -83,17 +83,13 @@ public class EventListenerAutoRegistrar implements SmartInitializingSingleton, A
             int totalRegistered = interfaceListeners + annotationListeners;
             registeredCount.set(totalRegistered);
 
-            log.info("=== 事件监听器自动注册完成 ===");
-            log.info("接口监听器: {}, 注解监听器: {}, 总计: {}",
+            log.debug("=== 事件监听器自动注册完成 ===");
+            log.debug("接口监听器: {}, 注解监听器: {}, 总计: {}",
                     interfaceListeners, annotationListeners, totalRegistered);
 
             // 打印注册状态摘要
-            try {
-                ListenerRegistryManager registryManager = applicationContext.getBean(ListenerRegistryManager.class);
-                registryManager.printRegistrySummary();
-            } catch (Exception registryException) {
-                log.debug("ListenerRegistryManager不可用，跳过状态摘要: {}", registryException.getMessage());
-            }
+            ListenerRegistryManager registryManager = applicationContext.getBean(ListenerRegistryManager.class);
+            registryManager.printRegistrySummary();
 
         } catch (Exception e) {
             log.error("事件监听器自动注册失败", e);
@@ -376,13 +372,9 @@ public class EventListenerAutoRegistrar implements SmartInitializingSingleton, A
             eventBus.subscribe(wrapper, eventType);
 
             // 注册到状态管理器
-            try {
-                ListenerRegistryManager registryManager = applicationContext.getBean(ListenerRegistryManager.class);
-                String topic = wrapper.getTopic();
-                registryManager.registerLocalEventType(eventType, topic != null ? topic : "");
-            } catch (Exception registryException) {
-                log.debug("ListenerRegistryManager不可用，跳过状态注册: {}", registryException.getMessage());
-            }
+            ListenerRegistryManager registryManager = applicationContext.getBean(ListenerRegistryManager.class);
+            String topic = wrapper.getTopic();
+            registryManager.registerLocalEventType(eventType, topic != null ? topic : "");
 
             log.debug("注册到EventBus: {} -> {}", wrapper.getClass().getSimpleName(), eventType.getSimpleName());
         } catch (Exception e) {
@@ -406,15 +398,10 @@ public class EventListenerAutoRegistrar implements SmartInitializingSingleton, A
         // 注册到所有传输层
         for (EventTransport transport : eventTransports) {
             try {
-                transport.subscribe(topic, (IEventListener) wrapper, (Class) eventType);
+                transport.subscribe(topic, wrapper, (Class) eventType);
 
-                // 注册到状态管理器
-                try {
-                    ListenerRegistryManager registryManager = applicationContext.getBean(ListenerRegistryManager.class);
-                    registryManager.registerRemoteEventType(eventType, topic);
-                } catch (Exception registryException) {
-                    log.debug("ListenerRegistryManager不可用，跳过远程状态注册: {}", registryException.getMessage());
-                }
+                ListenerRegistryManager registryManager = applicationContext.getBean(ListenerRegistryManager.class);
+                registryManager.registerRemoteEventType(eventType, topic);
 
                 log.debug("注册到{}: {} -> {} (topic: {})",
                         transport.getTransportType(), wrapper.getClass().getSimpleName(),
@@ -461,56 +448,8 @@ public class EventListenerAutoRegistrar implements SmartInitializingSingleton, A
         }
 
         // 跳过已知的事件总线组件，避免循环
-        if (bean instanceof IEventBus ||
+        return bean instanceof IEventBus ||
                 bean instanceof EventTransport ||
-                bean instanceof EventListenerAutoRegistrar) {
-            return true;
-        }
-
-        return false;
-    }
-
-    /**
-     * 获取已注册的监听器数量
-     */
-    public int getRegisteredCount() {
-        return registeredCount.get();
-    }
-
-    /**
-     * 获取注册统计信息
-     */
-    public Map<String, Object> getRegistrationStats() {
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("totalRegistered", registeredCount.get());
-        stats.put("interfaceListeners", registeredInterfaceListeners.size());
-        stats.put("methodListeners", registeredMethodListeners.size());
-        stats.put("cachedClasses", annotatedMethodsCache.size());
-        stats.put("timestamp", System.currentTimeMillis());
-        return stats;
-    }
-
-    /**
-     * 检查监听器是否已注册
-     */
-    public boolean isInterfaceListenerRegistered(String listenerKey) {
-        return registeredInterfaceListeners.contains(listenerKey);
-    }
-
-    /**
-     * 检查方法监听器是否已注册
-     */
-    public boolean isMethodListenerRegistered(String listenerKey) {
-        return registeredMethodListeners.contains(listenerKey);
-    }
-
-    /**
-     * 清理缓存（主要用于测试）
-     */
-    public void clearCache() {
-        annotatedMethodsCache.clear();
-        registeredInterfaceListeners.clear();
-        registeredMethodListeners.clear();
-        registeredCount.set(0);
+                bean instanceof EventListenerAutoRegistrar;
     }
 }

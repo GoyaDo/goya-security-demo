@@ -103,8 +103,7 @@ public class EventTypeResolver {
         }
         
         throw new IllegalArgumentException(
-            String.format("Cannot resolve event type from listener class: %s. " +
-                "Please ensure the class properly implements IEventListener<T> with a concrete type parameter.",
+            String.format("Cannot resolve event type from listener class: %s. ",
                 listenerClass.getName()));
     }
 
@@ -127,16 +126,6 @@ public class EventTypeResolver {
         }
         
         throw new IllegalArgumentException("Cannot resolve event type from superclass: " + superclass.getName());
-    }
-
-    /**
-     * 检查类是否实现了GoyaEventListener接口
-     *
-     * @param clazz 要检查的类
-     * @return 是否实现了接口
-     */
-    public static boolean isGoyaEventListener(Class<?> clazz) {
-        return IEventListener.class.isAssignableFrom(clazz);
     }
 
     /**

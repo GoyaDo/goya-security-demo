@@ -1,10 +1,13 @@
 package com.ysmjjsy.goya.security.bus.transport.rabbitmq;
 
+import cn.hutool.extra.spring.SpringUtil;
+import com.ysmjjsy.goya.security.bus.configuration.properties.BusProperties;
+import com.ysmjjsy.goya.security.bus.context.PropertyResolver;
 import com.ysmjjsy.goya.security.bus.domain.IEvent;
 import com.ysmjjsy.goya.security.bus.enums.BusRemoteType;
 import com.ysmjjsy.goya.security.bus.exception.EventHandleException;
 import com.ysmjjsy.goya.security.bus.listener.IEventListener;
-import com.ysmjjsy.goya.security.bus.properties.BusProperties;
+import com.ysmjjsy.goya.security.bus.processor.MethodIEventListenerWrapper;
 import com.ysmjjsy.goya.security.bus.serializer.EventSerializer;
 import com.ysmjjsy.goya.security.bus.transport.EventTransport;
 import com.ysmjjsy.goya.security.bus.transport.TransportResult;
@@ -12,13 +15,12 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.amqp.core.*;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.rabbit.listener.SimpleMessageListenerContainer;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 
 import java.util.Date;
 import java.util.HashMap;
@@ -29,7 +31,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * RabbitMQ 事件传输实现
  * 使用 RabbitMQ Topic Exchange 实现事件传输
- * 
+ * <p>
  * 功能特性：
  * - Topic Exchange 支持灵活的消息路由
  * - 支持消息持久化和可靠传输
@@ -44,9 +46,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * @since 2025/1/17
  */
 @Slf4j
-@Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(prefix = "bus.rabbitmq", name = "enabled", havingValue = "true")
 public class RabbitMQEventTransport implements EventTransport {
 
     private final RabbitTemplate rabbitTemplate;
@@ -54,10 +54,11 @@ public class RabbitMQEventTransport implements EventTransport {
     private final ConnectionFactory connectionFactory;
     private final EventSerializer eventSerializer;
     private final BusProperties eventBusProperties;
+    private final RabbitMqConfigResolver configResolver;
 
     private final RabbitMQManagementTool managementTool;
 
-    private final Map<String, TopicExchange> exchanges = new ConcurrentHashMap<>();
+    private final Map<String, AbstractExchange> exchanges = new ConcurrentHashMap<>();
     private final Map<String, Queue> queues = new ConcurrentHashMap<>();
     private final Map<String, SimpleMessageListenerContainer> containers = new ConcurrentHashMap<>();
     private final Map<String, Map<IEventListener<?>, RabbitMQEventMessageListener<?>>> subscriptions = new ConcurrentHashMap<>();
@@ -66,8 +67,6 @@ public class RabbitMQEventTransport implements EventTransport {
     private TopicExchange deadLetterExchange;
     private Queue retryQueue;
     private final Map<String, Integer> retryCounters = new ConcurrentHashMap<>();
-
-    private volatile boolean started = false;
 
     @PostConstruct
     public void init() {
@@ -78,14 +77,14 @@ public class RabbitMQEventTransport implements EventTransport {
 
         // 配置RabbitTemplate
         configureRabbitTemplate();
-        
+
         // 创建默认交换器
         createDefaultExchange();
-        
+
         // 创建死信队列相关资源
         createDeadLetterResources();
-        
-        log.info("RabbitMQ event transport initialized with exchange: {}", 
+
+        log.info("RabbitMQ event transport initialized with exchange: {}",
                 eventBusProperties.getRabbitmq().getDefaultExchangeName());
     }
 
@@ -98,47 +97,37 @@ public class RabbitMQEventTransport implements EventTransport {
     public CompletableFuture<TransportResult> send(IEvent<?> event) {
         return CompletableFuture.supplyAsync(() -> {
             try {
+                if (!eventBusProperties.getRabbitmq().isEnabled()) {
+                    return TransportResult.failure(getTransportType(), event.getTopic(), event.getEventId(),
+                            new IllegalStateException("RabbitMQ transport is disabled"));
+                }
+
                 if (!check(event)) {
                     return TransportResult.failure(getTransportType(), event.getTopic(), event.getEventId(),
                             new EventHandleException(event.getEventId(), "Event is local event"));
                 }
 
-                if (!eventBusProperties.getRabbitmq().isEnabled()) {
-                    return TransportResult.failure(getTransportType(), event.getTopic(), event.getEventId(), 
-                            new IllegalStateException("RabbitMQ transport is disabled"));
-                }
+                // 解析配置
+                RabbitMqConfigModel config = resolveEventConfig(event);
 
-                // 确保交换器存在
-                TopicExchange exchange = getOrCreateExchange(event.getTopic());
-                
                 // 序列化事件
                 String serializedEvent = eventSerializer.serialize(event);
-                
-                // 发送消息，使用topic作为routing key
-                rabbitTemplate.convertAndSend(exchange.getName(), event.getTopic(), serializedEvent, message -> {
-                    // 设置消息属性
-                    MessageProperties properties = message.getMessageProperties();
-                    properties.setContentType("application/json");
-                    properties.setDeliveryMode(MessageDeliveryMode.PERSISTENT);
-                    properties.setMessageId(event.getEventId());
-                    properties.setTimestamp(new Date());
 
-                    // 设置TTL
-                    if (eventBusProperties.getRabbitmq().getMessageTtl() != null) {
-                        properties.setExpiration(String.valueOf(eventBusProperties.getRabbitmq().getMessageTtl()));
-                    }
-                    
-                    // 设置重试相关头部
-                    properties.setHeader("retry-count", 0);
-                    properties.setHeader("max-retry-attempts", eventBusProperties.getRabbitmq().getRetryAttempts());
-                    properties.setHeader("original-topic", event.getTopic());
-                    
-                    return message;
-                });
+                // 获取有效的交换器和路由键
+                String exchangeName = config.getEffectiveExchange();
+                String routingKey = config.getEffectiveRoutingKey(event.getTopic());
 
-                log.debug("Event sent to RabbitMQ exchange '{}' with topic '{}': {}", 
-                        exchange.getName(), event.getTopic(), event.getEventId());
-                
+                // 确保交换器存在（如果指定了非默认交换器）
+                if (exchangeName != null) {
+                    getOrCreateExchangeWithConfig(config);
+                }
+
+                // 发送消息 - 使用Spring Boot RabbitMQ的标准方式
+                rabbitTemplate.convertAndSend(exchangeName, routingKey, serializedEvent, message -> applyMessageProperties(message, event, config));
+
+                log.debug("Event sent to RabbitMQ exchange '{}' with routing key '{}': {}",
+                        exchangeName != null ? exchangeName : "default", routingKey, event.getEventId());
+
                 return TransportResult.success(getTransportType(), event.getTopic(), event.getEventId());
 
             } catch (Exception e) {
@@ -148,45 +137,98 @@ public class RabbitMQEventTransport implements EventTransport {
         });
     }
 
-    @Override
-    public <E extends IEvent<E>> void subscribe(String topic, IEventListener<E> listener, Class<E> eventType) {
-        if (!started) {
-            throw new IllegalStateException("RabbitMQ transport not started");
+    /**
+     * 应用消息属性 - 基于Spring Boot RabbitMQ的MessageProperties
+     */
+    private Message applyMessageProperties(Message message, IEvent<?> event, RabbitMqConfigModel config) {
+        MessageProperties properties = message.getMessageProperties();
+
+        // 设置基础属性
+        properties.setContentType("application/json");
+        properties.setMessageId(event.getEventId());
+        properties.setTimestamp(new Date());
+
+        // 设置传递模式
+        if (config.shouldSetDeliveryMode()) {
+            properties.setDeliveryMode(MessageDeliveryMode.fromInt(config.getDeliveryMode()));
+        } else {
+            properties.setDeliveryMode(MessageDeliveryMode.PERSISTENT); // 默认持久化
         }
 
+        // 设置TTL（消息过期时间）
+        if (config.shouldSetTtl()) {
+            properties.setExpiration(String.valueOf(config.getMessageTtl()));
+        }
+
+        // 设置消息优先级
+        if (config.shouldSetPriority()) {
+            properties.setPriority(config.getPriority());
+        }
+
+        // 设置关联ID
+        if (config.shouldSetCorrelationId()) {
+            properties.setCorrelationId(config.getCorrelationId());
+        }
+
+        // 设置回复地址
+        if (config.shouldSetReplyTo()) {
+            properties.setReplyTo(config.getReplyTo());
+        }
+
+        // 设置业务重试相关头部（用于业务层重试控制）
+        if (config.isRetryEnabled()) {
+            properties.setHeader("retry-count", 0);
+            properties.setHeader("max-retry-attempts", config.getRetryAttempts());
+            properties.setHeader("retry-interval", config.getRetryInterval());
+        }
+
+        // 设置原始主题信息
+        properties.setHeader("original-topic", event.getTopic());
+        properties.setHeader("event-type", event.getEventType());
+
+        return message;
+    }
+
+    @Override
+    public <E extends IEvent<E>> void subscribe(String topic, IEventListener<E> listener, Class<E> eventType) {
         if (!eventBusProperties.getRabbitmq().isEnabled()) {
             log.warn("RabbitMQ transport is disabled, subscription ignored for topic: {}", topic);
             return;
         }
 
         try {
+            // 解析配置
+            RabbitMqConfigModel config = resolveListenerConfig(listener, topic);
+
             // 确保交换器存在
-            TopicExchange exchange = getOrCreateExchange(topic);
-            
+            AbstractExchange exchange = getOrCreateExchangeWithConfig(config);
+
             // 创建队列
-            Queue queue = createQueueForSubscription(topic, listener);
-            
+            Queue queue = createQueueForSubscriptionWithConfig(config, topic, listener);
+
             // 创建绑定
-            Binding binding = BindingBuilder.bind(queue).to(exchange).with(topic);
+            String routingKey = config.getEffectiveRoutingKey(topic);
+            Binding binding = createBindingForExchange(queue, exchange, routingKey);
             rabbitAdmin.declareBinding(binding);
-            
+
             // 创建消息监听器
+            boolean manualAck = config.getAcknowledgeMode() == AcknowledgeMode.MANUAL;
             RabbitMQEventMessageListener<E> messageListener =
-                    new RabbitMQEventMessageListener<>(listener, eventType, eventSerializer, topic, this);
-            
+                    new RabbitMQEventMessageListener<>(listener, eventType, eventSerializer, topic, this, manualAck);
+
             // 创建消息监听容器
-            SimpleMessageListenerContainer container = createMessageListenerContainer(queue, messageListener);
-            
+            SimpleMessageListenerContainer container = createMessageListenerContainerWithConfig(queue, messageListener, config);
+
             // 保存订阅信息
             subscriptions.computeIfAbsent(topic, k -> new ConcurrentHashMap<>())
                     .put(listener, messageListener);
             containers.put(getContainerKey(topic, listener), container);
-            
+
             // 启动容器
             container.start();
-            
-            log.info("Subscribed to RabbitMQ topic '{}' for event type {} with queue '{}'", 
-                    topic, eventType.getSimpleName(), queue.getName());
+
+            log.info("Subscribed to RabbitMQ topic '{}' for event type {} with queue '{}' (exchange: '{}', routing key: '{}')",
+                    topic, eventType.getSimpleName(), queue.getName(), exchange.getName(), routingKey);
 
         } catch (Exception e) {
             log.error("Failed to subscribe to RabbitMQ topic '{}'", topic, e);
@@ -206,7 +248,7 @@ public class RabbitMQEventTransport implements EventTransport {
                 if (container != null) {
                     container.stop();
                 }
-                
+
                 log.info("Unsubscribed from RabbitMQ topic '{}'", topic);
             }
         }
@@ -214,24 +256,11 @@ public class RabbitMQEventTransport implements EventTransport {
 
     @Override
     public void start() {
-        if (!started && eventBusProperties.getRabbitmq().isEnabled()) {
-            started = true;
-            log.info("RabbitMQ event transport started");
-        }
+
     }
 
     @Override
     public void stop() {
-        if (started) {
-            // 停止所有消息监听容器
-            containers.values().forEach(SimpleMessageListenerContainer::stop);
-            containers.clear();
-            subscriptions.clear();
-            retryCounters.clear();
-            
-            started = false;
-            log.info("RabbitMQ event transport stopped");
-        }
     }
 
     @PreDestroy
@@ -253,35 +282,35 @@ public class RabbitMQEventTransport implements EventTransport {
 
     /**
      * 处理消息重试
-     * 
-     * @param message 原始消息
-     * @param topic 主题
+     *
+     * @param message   原始消息
+     * @param topic     主题
      * @param exception 处理异常
      */
     public void handleRetry(Message message, String topic, Exception exception) {
         MessageProperties properties = message.getMessageProperties();
         Integer retryCount = (Integer) properties.getHeaders().getOrDefault("retry-count", 0);
-        Integer maxRetryAttempts = (Integer) properties.getHeaders().getOrDefault("max-retry-attempts", 
+        Integer maxRetryAttempts = (Integer) properties.getHeaders().getOrDefault("max-retry-attempts",
                 eventBusProperties.getRabbitmq().getRetryAttempts());
 
         if (retryCount < maxRetryAttempts) {
             // 增加重试次数
             retryCount++;
             properties.setHeader("retry-count", retryCount);
-            
+
             // 计算延迟时间
             long delay = eventBusProperties.getRabbitmq().getRetryInterval() * retryCount;
-            
-            log.warn("Retrying message processing (attempt {}/{}) for topic '{}' after {}ms delay: {}", 
+
+            log.warn("Retrying message processing (attempt {}/{}) for topic '{}' after {}ms delay: {}",
                     retryCount, maxRetryAttempts, topic, delay, exception.getMessage());
-            
+
             // 延迟重试
             scheduleRetry(message, topic, delay);
-            
+
         } else {
-            log.error("Max retry attempts ({}) exceeded for topic '{}', sending to dead letter exchange: {}", 
+            log.error("Max retry attempts ({}) exceeded for topic '{}', sending to dead letter exchange: {}",
                     maxRetryAttempts, topic, exception.getMessage());
-            
+
             // 发送到死信队列
             sendToDeadLetterQueue(message, topic, exception);
         }
@@ -297,11 +326,11 @@ public class RabbitMQEventTransport implements EventTransport {
                 log.warn("Message not delivered: {}", cause);
             }
         });
-        
+
         // 启用返回回调
         rabbitTemplate.setReturnsCallback(returned -> log.warn("Message returned: {}, replyCode: {}, replyText: {}",
                 returned.getMessage(), returned.getReplyCode(), returned.getReplyText()));
-        
+
         // 设置强制模式
         rabbitTemplate.setMandatory(true);
     }
@@ -316,7 +345,7 @@ public class RabbitMQEventTransport implements EventTransport {
                 config.isDurableExchange(),
                 config.isAutoDeleteExchange()
         );
-        
+
         rabbitAdmin.declareExchange(exchange);
         exchanges.put(config.getDefaultExchangeName(), exchange);
     }
@@ -326,8 +355,8 @@ public class RabbitMQEventTransport implements EventTransport {
      */
     private void createDeadLetterResources() {
         BusProperties.RabbitMQ config = eventBusProperties.getRabbitmq();
-        
-        if (config.getDeadLetterExchange() != null && !config.getDeadLetterExchange().isEmpty()) {
+
+        if (StringUtils.isNotBlank(config.getDeadLetterExchange())) {
             // 创建死信交换器
             deadLetterExchange = new TopicExchange(
                     config.getDeadLetterExchange(),
@@ -335,23 +364,24 @@ public class RabbitMQEventTransport implements EventTransport {
                     config.isAutoDeleteExchange()
             );
             rabbitAdmin.declareExchange(deadLetterExchange);
-            
+
+           String deadLetterQueueName = PropertyResolver.getApplicationName(SpringUtil.getApplicationContext().getEnvironment()) + ".bus.dead-letter";
             // 创建死信队列
             Queue deadLetterQueue = QueueBuilder
-                    .durable(config.getQueuePrefix() + "dead-letter")
+                    .durable(deadLetterQueueName)
                     .build();
             rabbitAdmin.declareQueue(deadLetterQueue);
-            
+
             // 绑定死信队列到死信交换器
             Binding deadLetterBinding = BindingBuilder
                     .bind(deadLetterQueue)
                     .to(deadLetterExchange)
                     .with("dead-letter.#");
             rabbitAdmin.declareBinding(deadLetterBinding);
-            
+
             log.info("Dead letter exchange '{}' and queue created", config.getDeadLetterExchange());
         }
-        
+
         // 创建重试队列
         createRetryQueue();
     }
@@ -361,228 +391,73 @@ public class RabbitMQEventTransport implements EventTransport {
      */
     private void createRetryQueue() {
         BusProperties.RabbitMQ config = eventBusProperties.getRabbitmq();
-        
-        Map<String, Object> args = new HashMap<>();
-        args.put("x-message-ttl", config.getRetryInterval());
-        args.put("x-dead-letter-exchange", config.getDefaultExchangeName());
-        
-        retryQueue = QueueBuilder
-                .durable(config.getQueuePrefix() + "retry")
-                .withArguments(args)
-                .build();
-        
-        rabbitAdmin.declareQueue(retryQueue);
-        
-        log.debug("Retry queue '{}' created with TTL: {}ms", retryQueue.getName(), config.getRetryInterval());
-    }
+        String retryQueueName = PropertyResolver.getApplicationName(SpringUtil.getApplicationContext().getEnvironment()) + ".bus.retry";
 
-    /**
-     * 获取或创建交换器
-     */
-    private TopicExchange getOrCreateExchange(String topic) {
-        String exchangeName = eventBusProperties.getRabbitmq().getDefaultExchangeName();
-        return exchanges.computeIfAbsent(exchangeName, name -> {
-            BusProperties.RabbitMQ config = eventBusProperties.getRabbitmq();
-            TopicExchange exchange = new TopicExchange(name, config.isDurableExchange(), config.isAutoDeleteExchange());
-            rabbitAdmin.declareExchange(exchange);
-            return exchange;
-        });
-    }
+        try {
+            Map<String, Object> args = new HashMap<>();
+            args.put("x-message-ttl", config.getRetryInterval());
+            args.put("x-dead-letter-exchange", config.getDefaultExchangeName());
 
-    /**
-     * 为订阅创建队列
-     */
-    private Queue createQueueForSubscription(String topic, IEventListener<?> listener) {
-        String queueName = eventBusProperties.getRabbitmq().getQueuePrefix() + topic + "." + 
-                listener.getClass().getSimpleName();
-        
-        return queues.computeIfAbsent(queueName, name -> {
-            BusProperties.RabbitMQ config = eventBusProperties.getRabbitmq();
-            
+            retryQueue = QueueBuilder
+                    .durable(retryQueueName)
+                    .withArguments(args)
+                    .build();
+
+            rabbitAdmin.declareQueue(retryQueue);
+            log.debug("Retry queue '{}' created with TTL: {}ms", retryQueue.getName(), config.getRetryInterval());
+
+        } catch (Exception e) {
+            log.warn("Failed to create retry queue '{}' with full config, attempting cleanup and recreation: {}",
+                    retryQueueName, e.getMessage());
+
             try {
-                // 首先尝试被动声明队列，检查队列是否已存在
-                Queue existingQueue = tryDeclareExistingQueue(name);
-                if (existingQueue != null) {
-                    log.info("Using existing queue: {}", name);
-                    return existingQueue;
-                }
-                
-                // 队列不存在，创建新队列
-                return createNewQueueWithFullConfig(name, config, topic);
-                
-            } catch (Exception e) {
-                log.warn("Failed to create queue '{}' with full config: {}", name, e.getMessage());
-                return handleQueueConflictWithManagement(name, config, topic, e);
-            }
-        });
-    }
+                // 尝试删除现有的冲突队列
+                rabbitAdmin.deleteQueue(retryQueueName);
+                log.info("Deleted existing retry queue '{}' due to configuration conflict", retryQueueName);
 
-    /**
-     * 使用管理工具处理队列冲突
-     */
-    private Queue handleQueueConflictWithManagement(String queueName, BusProperties.RabbitMQ config, String topic, Exception originalException) {
-        try {
-            // 检查是否启用自动清理
-            if (!config.isAutoCleanupConflicts()) {
-                log.warn("Auto cleanup is disabled, falling back to simple queue creation for '{}'", queueName);
-                return createQueueWithoutTtl(queueName, config, topic);
-            }
+                // 重新创建队列
+                Map<String, Object> args = new HashMap<>();
+                args.put("x-message-ttl", config.getRetryInterval());
+                args.put("x-dead-letter-exchange", config.getDefaultExchangeName());
 
-            log.info("Attempting to resolve queue conflict for '{}' using management tool", queueName);
-            
-            // 检查队列是否真的存在
-            if (managementTool.queueExists(queueName)) {
-                log.info("Queue '{}' exists with incompatible configuration, attempting cleanup", queueName);
-                
-                // 尝试清理队列
-                boolean cleaned = managementTool.cleanupQueue(queueName);
-                if (cleaned) {
-                    log.info("Successfully cleaned up queue '{}', recreating with new configuration", queueName);
-                    
-                    // 重新创建队列
-                    return createNewQueueWithFullConfig(queueName, config, topic);
-                } else {
-                    log.warn("Failed to cleanup queue '{}', falling back to simple queue creation", queueName);
-                    return createQueueWithoutTtl(queueName, config, topic);
-                }
-            } else {
-                log.debug("Queue '{}' does not exist, creating new one", queueName);
-                return createNewQueueWithFullConfig(queueName, config, topic);
-            }
-            
-        } catch (Exception e) {
-            log.error("Management tool failed to resolve queue conflict for '{}': {}", queueName, e.getMessage());
-            // 最后的fallback
-            return createQueueWithoutTtl(queueName, config, topic);
-        }
-    }
+                retryQueue = QueueBuilder
+                        .durable(retryQueueName)
+                        .withArguments(args)
+                        .build();
 
-    /**
-     * 创建新队列（完整配置）
-     */
-    private Queue createNewQueueWithFullConfig(String queueName, BusProperties.RabbitMQ config, String topic) {
-        QueueBuilder builder = QueueBuilder.durable(queueName);
-        
-        if (config.isAutoDeleteQueue()) {
-            builder.autoDelete();
-        }
-        if (config.isExclusiveQueue()) {
-            builder.exclusive();
-        }
-        
-        // 设置死信交换器
-        if (config.getDeadLetterExchange() != null && !config.getDeadLetterExchange().isEmpty()) {
-            builder.withArgument("x-dead-letter-exchange", config.getDeadLetterExchange());
-            builder.withArgument("x-dead-letter-routing-key", "dead-letter." + topic);
-        }
-        
-        // 设置消息TTL
-        if (config.getMessageTtl() != null) {
-            builder.withArgument("x-message-ttl", config.getMessageTtl());
-        }
-        
-        Queue queue = builder.build();
-        
-        rabbitAdmin.declareQueue(queue);
-        log.info("Created new queue: {} with TTL: {}", queueName, config.getMessageTtl());
-        return queue;
-    }
+                rabbitAdmin.declareQueue(retryQueue);
+                log.info("Successfully recreated retry queue '{}' with new configuration", retryQueueName);
 
-    /**
-     * 尝试被动声明已存在的队列
-     */
-    private Queue tryDeclareExistingQueue(String queueName) {
-        try {
-            // 使用被动声明检查队列是否存在
-            rabbitAdmin.getQueueProperties(queueName);
-            
-            // 如果没有抛出异常，说明队列存在，创建一个简单的Queue对象
-            return QueueBuilder.durable(queueName).build();
-            
-        } catch (Exception e) {
-            // 队列不存在或其他错误
-            log.debug("Queue '{}' does not exist or cannot be accessed: {}", queueName, e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * 创建不带TTL的队列（用于兼容已存在的队列）
-     */
-    private Queue createQueueWithoutTtl(String queueName, BusProperties.RabbitMQ config, String topic) {
-        try {
-            QueueBuilder builder = QueueBuilder.durable(queueName);
-            
-            if (config.isAutoDeleteQueue()) {
-                builder.autoDelete();
-            }
-            if (config.isExclusiveQueue()) {
-                builder.exclusive();
-            }
-            
-            // 只设置死信交换器（如果配置了的话）
-            if (config.getDeadLetterExchange() != null && !config.getDeadLetterExchange().isEmpty()) {
-                builder.withArgument("x-dead-letter-exchange", config.getDeadLetterExchange());
-                builder.withArgument("x-dead-letter-routing-key", "dead-letter." + topic);
-            }
-            
-            Queue queue = builder.build();
-            
-            rabbitAdmin.declareQueue(queue);
-            log.info("Created queue without TTL: {}", queueName);
-            return queue;
-            
-        } catch (Exception e) {
-            log.error("Failed to create queue '{}' even without TTL: {}", queueName, e.getMessage());
-            
-            // 最后尝试：创建最简单的持久化队列
-            Queue simpleQueue = QueueBuilder.durable(queueName).build();
-            try {
-                rabbitAdmin.declareQueue(simpleQueue);
-                log.info("Created simple durable queue: {}", queueName);
-                return simpleQueue;
             } catch (Exception ex) {
-                log.error("Failed to create simple queue '{}': {}", queueName, ex.getMessage());
-                throw new RuntimeException("Unable to create queue: " + queueName, ex);
+                log.error("Failed to recreate retry queue '{}', using simplified configuration: {}",
+                        retryQueueName, ex.getMessage());
+
+                // 最后尝试：创建没有参数的简化队列
+                retryQueue = QueueBuilder.durable(retryQueueName).build();
+                try {
+                    rabbitAdmin.declareQueue(retryQueue);
+                    log.warn("Created simplified retry queue '{}' without TTL configuration", retryQueueName);
+                } catch (Exception finalEx) {
+                    log.error("Failed to create any retry queue configuration: {}", finalEx.getMessage());
+                    retryQueue = null;
+                }
             }
         }
-    }
-
-    /**
-     * 创建消息监听容器
-     */
-    private SimpleMessageListenerContainer createMessageListenerContainer(Queue queue, 
-                                                                         RabbitMQEventMessageListener<?> messageListener) {
-        SimpleMessageListenerContainer container = new SimpleMessageListenerContainer();
-        container.setConnectionFactory(connectionFactory);
-        container.setQueueNames(queue.getName());
-        container.setMessageListener(messageListener);
-        
-        // 设置预取数量
-        container.setPrefetchCount(eventBusProperties.getRabbitmq().getPrefetchCount());
-        
-        // 设置确认模式
-        if ("manual".equals(eventBusProperties.getRabbitmq().getAcknowledgmentMode())) {
-            container.setAcknowledgeMode(AcknowledgeMode.MANUAL);
-        } else {
-            container.setAcknowledgeMode(AcknowledgeMode.AUTO);
-        }
-        
-        // 设置并发消费者数量
-        container.setConcurrentConsumers(1);
-        container.setMaxConcurrentConsumers(3);
-        
-        return container;
     }
 
     /**
      * 安排重试
      */
     private void scheduleRetry(Message message, String topic, long delay) {
+        if (retryQueue == null) {
+            log.error("Retry queue not available, cannot schedule retry for topic: {}", topic);
+            return;
+        }
+
         // 发送到重试队列，利用TTL实现延迟
         rabbitTemplate.convertAndSend(retryQueue.getName(), message, msg -> {
             msg.getMessageProperties().setHeader("original-routing-key", topic);
-            msg.getMessageProperties().setHeader("original-exchange", 
+            msg.getMessageProperties().setHeader("original-exchange",
                     eventBusProperties.getRabbitmq().getDefaultExchangeName());
             return msg;
         });
@@ -594,15 +469,15 @@ public class RabbitMQEventTransport implements EventTransport {
     private void sendToDeadLetterQueue(Message message, String topic, Exception exception) {
         if (deadLetterExchange != null) {
             String routingKey = "dead-letter." + topic;
-            
+
             rabbitTemplate.convertAndSend(deadLetterExchange.getName(), routingKey, message, msg -> {
                 msg.getMessageProperties().setHeader("failure-reason", exception.getMessage());
                 msg.getMessageProperties().setHeader("failure-timestamp", System.currentTimeMillis());
                 msg.getMessageProperties().setHeader("original-topic", topic);
                 return msg;
             });
-            
-            log.warn("Message sent to dead letter exchange '{}' with routing key '{}'", 
+
+            log.warn("Message sent to dead letter exchange '{}' with routing key '{}'",
                     deadLetterExchange.getName(), routingKey);
         } else {
             log.error("Dead letter exchange not configured, message will be discarded for topic: {}", topic);
@@ -610,16 +485,173 @@ public class RabbitMQEventTransport implements EventTransport {
     }
 
     /**
-     * 获取重试队列名称
-     */
-    public String getRetryQueueName() {
-        return retryQueue != null ? retryQueue.getName() : null;
-    }
-
-    /**
      * 生成容器键
      */
     private String getContainerKey(String topic, IEventListener<?> listener) {
         return topic + ":" + listener.getClass().getName() + "@" + System.identityHashCode(listener);
+    }
+
+    /**
+     * 获取重试队列名称
+     * 用于SpEL表达式引用
+     */
+    public String getRetryQueueName() {
+        return retryQueue != null ? retryQueue.getName() : "bus.retry";
+    }
+
+    /**
+     * 解析事件配置
+     */
+    private RabbitMqConfigModel resolveEventConfig(IEvent<?> event) {
+        if (event instanceof RabbitMqEvent) {
+            return configResolver.resolveFromEvent((RabbitMqEvent<?>) event);
+        }
+        return configResolver.resolveFromDefaults(event.getTopic());
+    }
+
+    /**
+     * 解析监听器配置
+     */
+    private RabbitMqConfigModel resolveListenerConfig(IEventListener<?> listener, String topic) {
+        if (listener instanceof MethodIEventListenerWrapper) {
+            MethodIEventListenerWrapper wrapper = (MethodIEventListenerWrapper) listener;
+            RabbitMqConfig annotation = wrapper.getRabbitMqConfig();
+            return configResolver.resolveFromAnnotation(annotation, topic);
+        }
+        return configResolver.resolveFromDefaults(topic);
+    }
+
+    /**
+     * 使用配置创建或获取交换器
+     */
+    private AbstractExchange getOrCreateExchangeWithConfig(RabbitMqConfigModel config) {
+        String exchangeName = config.getEffectiveExchange();
+
+        return exchanges.computeIfAbsent(exchangeName, name -> {
+            AbstractExchange exchange = createExchangeByType(exchangeName, config);
+            rabbitAdmin.declareExchange(exchange);
+            log.debug("Created {} exchange: {}", config.getEffectiveExchangeType(), exchangeName);
+            return exchange;
+        });
+    }
+
+    /**
+     * 根据类型创建交换器
+     */
+    private AbstractExchange createExchangeByType(String exchangeName, RabbitMqConfigModel config) {
+        String exchangeType = config.getEffectiveExchangeType();
+        boolean durable = config.isDurableExchange();
+        boolean autoDelete = config.isAutoDeleteExchange();
+
+        switch (exchangeType) {
+            case "direct":
+                return new DirectExchange(exchangeName, durable, autoDelete);
+            case "fanout":
+                return new FanoutExchange(exchangeName, durable, autoDelete);
+            case "headers":
+                return new HeadersExchange(exchangeName, durable, autoDelete);
+            case "topic":
+            default:
+                return new TopicExchange(exchangeName, durable, autoDelete);
+        }
+    }
+
+    /**
+     * 使用配置为订阅创建队列
+     */
+    private Queue createQueueForSubscriptionWithConfig(RabbitMqConfigModel config, String topic, IEventListener<?> listener) {
+        String queueName = generateQueueName(config, topic, listener);
+
+        return queues.computeIfAbsent(queueName, name -> {
+            try {
+                return createQueueWithConfig(name, config);
+            } catch (Exception e) {
+                log.warn("Failed to create queue '{}' with full config, trying with simplified config: {}", name, e.getMessage());
+                return createSimplifiedQueue(name, config);
+            }
+        });
+    }
+
+    /**
+     * 使用配置创建队列
+     */
+    private Queue createQueueWithConfig(String queueName, RabbitMqConfigModel config) {
+        Map<String, Object> arguments = new HashMap<>();
+
+        // 设置TTL
+        if (config.getMessageTtl() > 0) {
+            arguments.put("x-message-ttl", config.getMessageTtl());
+        }
+
+        Queue queue = new Queue(queueName, config.isDurableQueue(), false, false, arguments);
+        rabbitAdmin.declareQueue(queue);
+        log.debug("Created queue with config: {}", queueName);
+        return queue;
+    }
+
+    /**
+     * 创建简化的队列（当完整配置失败时）
+     */
+    private Queue createSimplifiedQueue(String queueName, RabbitMqConfigModel config) {
+        Queue queue = new Queue(queueName, config.isDurableQueue());
+        rabbitAdmin.declareQueue(queue);
+        log.debug("Created simplified queue: {}", queueName);
+        return queue;
+    }
+
+    /**
+     * 使用配置创建消息监听容器
+     */
+    private SimpleMessageListenerContainer createMessageListenerContainerWithConfig(
+            Queue queue, RabbitMQEventMessageListener<?> messageListener, RabbitMqConfigModel config) {
+
+        SimpleMessageListenerContainer container = new SimpleMessageListenerContainer();
+        container.setConnectionFactory(connectionFactory);
+        container.setQueueNames(queue.getName());
+        container.setMessageListener(messageListener);
+
+        // 设置确认模式
+        container.setAcknowledgeMode(config.getAcknowledgeMode());
+
+        // 设置预取数量
+        container.setPrefetchCount(config.getPrefetchCount());
+
+        // 设置并发消费者
+        container.setConcurrentConsumers(1);
+        container.setMaxConcurrentConsumers(1);
+
+        return container;
+    }
+
+    /**
+     * 生成队列名称
+     */
+    private String generateQueueName(RabbitMqConfigModel config, String topic, IEventListener<?> listener) {
+        if (config.getQueueName() != null && !config.getQueueName().isEmpty()) {
+            return config.getFullQueueName();
+        }
+
+        // 默认队列名称生成策略
+        String listenerName = listener.getClass().getSimpleName();
+        return topic + "." + listenerName;
+    }
+
+    /**
+     * 为不同类型的交换器创建绑定
+     */
+    private Binding createBindingForExchange(Queue queue, AbstractExchange exchange, String routingKey) {
+        if (exchange instanceof TopicExchange) {
+            return BindingBuilder.bind(queue).to((TopicExchange) exchange).with(routingKey);
+        } else if (exchange instanceof DirectExchange) {
+            return BindingBuilder.bind(queue).to((DirectExchange) exchange).with(routingKey);
+        } else if (exchange instanceof FanoutExchange) {
+            return BindingBuilder.bind(queue).to((FanoutExchange) exchange);
+        } else if (exchange instanceof HeadersExchange) {
+            // 对于Headers交换器，需要使用头部匹配而不是路由键
+            return BindingBuilder.bind(queue).to((HeadersExchange) exchange).where("topic").exists();
+        } else {
+            // 默认按Topic处理
+            return BindingBuilder.bind(queue).to((TopicExchange) exchange).with(routingKey);
+        }
     }
 } 

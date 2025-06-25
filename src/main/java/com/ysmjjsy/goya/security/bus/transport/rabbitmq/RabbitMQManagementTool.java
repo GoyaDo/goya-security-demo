@@ -1,6 +1,6 @@
 package com.ysmjjsy.goya.security.bus.transport.rabbitmq;
 
-import com.ysmjjsy.goya.security.bus.properties.BusProperties;
+import com.ysmjjsy.goya.security.bus.configuration.properties.BusProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.Queue;
@@ -12,7 +12,7 @@ import java.util.Properties;
 
 /**
  * RabbitMQ 管理工具
- * 
+ *
  * 提供队列管理功能：
  * - 清理不兼容的队列
  * - 队列状态检查
@@ -38,7 +38,7 @@ public class RabbitMQManagementTool {
             Properties queueProperties = rabbitAdmin.getQueueProperties(queueName);
             if (queueProperties != null) {
                 log.info("Queue '{}' exists, attempting to delete for cleanup", queueName);
-                
+
                 // 删除队列
                 boolean deleted = rabbitAdmin.deleteQueue(queueName);
                 if (deleted) {
@@ -81,18 +81,6 @@ public class RabbitMQManagementTool {
             log.debug("Cannot get queue info for '{}': {}", queueName, e.getMessage());
             return null;
         }
-    }
-
-    /**
-     * 清理所有事件总线相关的队列
-     */
-    public void cleanupAllEventQueues() {
-        String queuePrefix = busProperties.getRabbitmq().getQueuePrefix();
-        log.info("Starting cleanup of all event queues with prefix: {}", queuePrefix);
-        
-        // 注意：RabbitAdmin没有直接列出所有队列的方法
-        // 这里我们只是提供一个清理接口，具体的队列名需要外部提供
-        log.warn("Manual queue cleanup may be required. Please check RabbitMQ management interface for queues with prefix: {}", queuePrefix);
     }
 
     /**

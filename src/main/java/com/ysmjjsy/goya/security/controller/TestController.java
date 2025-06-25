@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * <p>测试控制器</p>
+ * <p>演示重构后的RabbitMQ功能，展示简化配置和核心功能的使用</p>
+ * <p>基于Spring Boot RabbitMQ的核心功能进行测试</p>
  *
  * @author goya
  * @since 2025/6/24 16:44
@@ -24,15 +26,23 @@ public class TestController {
 
     @GetMapping("/hello")
     public String hello() {
-        return "Hello Goya Security!";
+        return "Hello Goya Security with Refactored RabbitMQ Support! 🚀";
     }
 
+    /**
+     * 发布基础测试事件
+     */
     @GetMapping("/event")
     public String publishEvent() {
-        TestEvent event = new TestEvent("test").topic("test").routingStrategy(EventRoutingStrategy.LOCAL_AND_REMOTE);
+        TestEvent event = new TestEvent("test")
+                .topic("test")
+                .routingStrategy(EventRoutingStrategy.REMOTE_ONLY)
+                ;
 
-        // 发布事件
+        event.setRoutingKey("test-simple-queue");
+
         eventBus.publish(event);
-        return "Publish Success!";
+        return "Basic Event Published Successfully!";
     }
+
 }
