@@ -1,4 +1,4 @@
-package com.ysmjjsy.goya.security.bus.transport;
+package com.ysmjjsy.goya.security.bus.transport.rabbitmq;
 
 import com.rabbitmq.client.Channel;
 import com.ysmjjsy.goya.security.bus.domain.IEvent;

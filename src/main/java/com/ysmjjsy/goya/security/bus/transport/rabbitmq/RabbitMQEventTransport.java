@@ -1,10 +1,12 @@
-package com.ysmjjsy.goya.security.bus.transport;
+package com.ysmjjsy.goya.security.bus.transport.rabbitmq;
 
 import com.ysmjjsy.goya.security.bus.domain.IEvent;
 import com.ysmjjsy.goya.security.bus.enums.BusRemoteType;
 import com.ysmjjsy.goya.security.bus.listener.IEventListener;
 import com.ysmjjsy.goya.security.bus.properties.BusProperties;
 import com.ysmjjsy.goya.security.bus.serializer.EventSerializer;
+import com.ysmjjsy.goya.security.bus.transport.EventTransport;
+import com.ysmjjsy.goya.security.bus.transport.TransportResult;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;

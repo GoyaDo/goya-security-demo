@@ -61,10 +61,7 @@ public class JacksonEventSerializer implements EventSerializer {
                 .visibility(PropertyAccessor.CREATOR, JsonAutoDetect.Visibility.ANY)
                 .visibility(PropertyAccessor.GETTER, JsonAutoDetect.Visibility.PUBLIC_ONLY)
 
-                .build()
-
-                // 启用多态类型信息
-                .enableDefaultTyping(ObjectMapper.DefaultTyping.NON_FINAL);
+                .build();
     }
 
     @Override

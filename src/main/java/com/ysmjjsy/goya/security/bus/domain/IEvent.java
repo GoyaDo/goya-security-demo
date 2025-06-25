@@ -22,7 +22,7 @@ import java.time.LocalDateTime;
 @ToString
 @EqualsAndHashCode(callSuper = false)
 @Getter
-@JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, include = JsonTypeInfo.As.PROPERTY, property = "@class")
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "@type")
 public abstract class IEvent implements Serializable {
 
     private static final long serialVersionUID = 5801852503405243664L;

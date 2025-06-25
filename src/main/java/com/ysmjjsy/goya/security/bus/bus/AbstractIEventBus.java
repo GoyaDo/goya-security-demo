@@ -223,22 +223,20 @@ public abstract class AbstractIEventBus implements IEventBus {
             }
 
             if (eventRoutingDecision.shouldPublishRemote()) {
-                listenerWrappers.forEach(listener -> {
-                    try {
-                        eventTransports.stream()
-                                .filter(t -> t.getTransportType().equals(eventRoutingDecision.getRemoteType()))
-                                .forEach(eventTransport -> {
-                            try {
-                                eventTransport.send(iEvent);
-                            } catch (Exception e) {
-                                log.error("Failed to publish event to transport: {}", eventTransport.getTransportType(), e);
-                            }
-                        });
+                try {
+                    eventTransports.stream()
+                            .filter(t -> t.getTransportType().equals(eventRoutingDecision.getRemoteType()))
+                            .forEach(eventTransport -> {
+                                try {
+                                    eventTransport.send(iEvent);
+                                } catch (Exception e) {
+                                    log.error("Failed to publish event to transport: {}", eventTransport.getTransportType(), e);
+                                }
+                            });
 
-                    } catch (EventHandleException e) {
-                        log.error("Failed to process event in method listener", e);
-                    }
-                });
+                } catch (EventHandleException e) {
+                    log.error("Failed to process event in method listener", e);
+                }
             }
 
         }

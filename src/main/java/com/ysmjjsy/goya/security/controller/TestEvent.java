@@ -1,7 +1,9 @@
 package com.ysmjjsy.goya.security.controller;
 
+import com.fasterxml.jackson.annotation.JsonTypeName;
 import com.ysmjjsy.goya.security.bus.domain.IEvent;
 import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.ToString;
 
 /**
