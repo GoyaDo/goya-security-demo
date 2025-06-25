@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
 public class TestEventListener {
 
     @IListener(topic = "test", rabbitmq = @RabbitMqConfig(
-            exchange = "test"
+            queueName = "test"
     ))
     public void onEvent(TestEvent event) {
         log.error("接收到的event:{}", event);
