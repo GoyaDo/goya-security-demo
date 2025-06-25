@@ -1,10 +1,9 @@
 package com.ysmjjsy.goya.security.controller;
 
-import com.fasterxml.jackson.annotation.JsonTypeName;
 import com.ysmjjsy.goya.security.bus.domain.IEvent;
 import lombok.EqualsAndHashCode;
-import lombok.Getter;
 import lombok.ToString;
+import lombok.experimental.SuperBuilder;
 
 /**
  * <p>测试事件</p>
@@ -14,12 +13,12 @@ import lombok.ToString;
  */
 @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = true)
-public class TestEvent extends IEvent {
+@SuperBuilder
+public class TestEvent extends IEvent<TestEvent> {
 
     private final String message;
 
     public TestEvent(String message) {
-        super();
         this.message = message;
     }
 }

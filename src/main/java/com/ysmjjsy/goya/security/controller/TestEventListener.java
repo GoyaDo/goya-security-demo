@@ -1,6 +1,7 @@
 package com.ysmjjsy.goya.security.controller;
 
 import com.ysmjjsy.goya.security.bus.annotation.IListener;
+import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMqConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -14,7 +15,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class TestEventListener {
 
-    @IListener(topic = "test")
+    @IListener(topic = "test", rabbitmq = @RabbitMqConfig(
+            exchange = "test"
+    ))
     public void onEvent(TestEvent event) {
         log.error("接收到的event:{}", event);
     }

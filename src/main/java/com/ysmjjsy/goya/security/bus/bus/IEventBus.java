@@ -16,7 +16,7 @@ import java.util.Map;
  */
 public interface IEventBus {
 
-    Map<Class<? extends IEvent>, List<MethodIEventListenerWrapper>> getRegisterEventListeners();
+    Map<Class<? extends IEvent<?>>, List<MethodIEventListenerWrapper>> getRegisterEventListeners();
 
     /**
      * 发布事件
@@ -24,7 +24,7 @@ public interface IEventBus {
      * @param event 事件
      * @return 发布结果
      */
-    default EventPublishResult publish(IEvent event) {
+    default EventPublishResult publish(IEvent<?> event) {
         return publish(event, false, null);
     }
 
@@ -36,7 +36,7 @@ public interface IEventBus {
      * @param phase 事物
      * @return 发布结果
      */
-    EventPublishResult publish(IEvent event, boolean async, TransactionPhase phase);
+    EventPublishResult publish(IEvent<?> event, boolean async, TransactionPhase phase);
 
     /**
      * 事务性发布事件
@@ -45,7 +45,7 @@ public interface IEventBus {
      * @param event 要发布的事件
      * @return 发布结果
      */
-    default EventPublishResult publishTransactional(IEvent event) {
+    default EventPublishResult publishTransactional(IEvent<?> event) {
         return publish(event, false, TransactionPhase.AFTER_COMMIT);
     }
 
@@ -57,7 +57,7 @@ public interface IEventBus {
      * @param phase 事物阶段
      * @return 发布结果
      */
-    default EventPublishResult publishTransactional(IEvent event, TransactionPhase phase) {
+    default EventPublishResult publishTransactional(IEvent<?> event, TransactionPhase phase) {
         return publish(event, false, phase);
     }
 
@@ -67,7 +67,7 @@ public interface IEventBus {
      * @param event 要发布的事件
      * @return 异步发布结果
      */
-    default EventPublishResult publishAsync(IEvent event) {
+    default EventPublishResult publishAsync(IEvent<?> event) {
         return publish(event, true, null);
     }
 
@@ -77,7 +77,7 @@ public interface IEventBus {
      * @param event 要发布的事件
      * @return 异步发布结果
      */
-    default EventPublishResult publishAsyncTransactional(IEvent event) {
+    default EventPublishResult publishAsyncTransactional(IEvent<?> event) {
         return publish(event, true, TransactionPhase.AFTER_COMMIT);
     }
 
@@ -88,7 +88,7 @@ public interface IEventBus {
      * @param phase 事物阶段
      * @return 异步发布结果
      */
-    default EventPublishResult publishAsyncTransactional(IEvent event, TransactionPhase phase) {
+    default EventPublishResult publishAsyncTransactional(IEvent<?> event, TransactionPhase phase) {
         return publish(event, true, phase);
     }
 
@@ -98,7 +98,7 @@ public interface IEventBus {
      * @param listener  事件监听器
      * @param eventType 监听的事件类型
      */
-    <E extends IEvent> void subscribe(MethodIEventListenerWrapper listener, Class<E> eventType);
+    <E extends IEvent<E>> void subscribe(MethodIEventListenerWrapper listener, Class<E> eventType);
 
     /**
      * 取消注册事件监听器
@@ -106,6 +106,6 @@ public interface IEventBus {
      * @param listener  事件监听器
      * @param eventType 监听的事件类型
      */
-    <E extends IEvent> void unsubscribe(MethodIEventListenerWrapper listener, Class<E> eventType);
+    <E extends IEvent<E>> void unsubscribe(MethodIEventListenerWrapper listener, Class<E> eventType);
 
 }

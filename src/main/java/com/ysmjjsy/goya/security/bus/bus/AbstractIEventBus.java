@@ -41,10 +41,10 @@ public abstract class AbstractIEventBus implements IEventBus {
     protected final EventRouter eventRouter;
 
     @Getter
-    protected final Map<Class<? extends IEvent>, List<MethodIEventListenerWrapper>> registerEventListeners = new ConcurrentHashMap<>();
+    protected final Map<Class<? extends IEvent<?>>, List<MethodIEventListenerWrapper>> registerEventListeners = new ConcurrentHashMap<>();
 
     @Override
-    public EventPublishResult publish(IEvent event, boolean isAsync, TransactionPhase phase) {
+    public EventPublishResult publish(IEvent<?> event, boolean isAsync, TransactionPhase phase) {
         log.info("publish event: {}", event);
 
         if (Objects.isNull(event)) {
@@ -56,11 +56,8 @@ public abstract class AbstractIEventBus implements IEventBus {
 
         try {
             EventRoutingDecision route = eventRouter.route(event);
-            event.topic(route.getTopic());
-            event.routingStrategy(route.getStrategy());
-            event.remoteType(route.getRemoteType());
             // 本地处理
-            resultBuilder = localPublish(event, route, resultBuilder, isAsync, phase);
+            resultBuilder = localPublish(wrapperEvent(event, route), route, resultBuilder, isAsync, phase);
         } catch (Exception e) {
             log.error("publish event error", e);
             resultBuilder.success(false).publishTime(LocalDateTime.now()).addError(e.getMessage());
@@ -69,9 +66,27 @@ public abstract class AbstractIEventBus implements IEventBus {
         return resultBuilder.build();
     }
 
+    /**
+     * 事件包装
+     *
+     * @param event 事件
+     * @param route 路由
+     * @return 包装后的事件
+     */
+    private IEvent<?> wrapperEvent(IEvent<?> event, EventRoutingDecision route) {
+        event.eventId(route.getEventId())
+                .eventType(route.getEventType())
+                .topic(route.getTopic())
+                .remoteType(route.getRemoteType())
+                .originalService(route.getOriginalService())
+                .destinationService(route.getDestinationService())
+        ;
+        return event;
+    }
+
 
     @Override
-    public <E extends IEvent> void subscribe(MethodIEventListenerWrapper listener, Class<E> eventType) {
+    public <E extends IEvent<E>> void subscribe(MethodIEventListenerWrapper listener, Class<E> eventType) {
         registerEventListeners
                 .computeIfAbsent(eventType, k -> new CopyOnWriteArrayList<>())
                 .add(listener);
@@ -80,7 +95,7 @@ public abstract class AbstractIEventBus implements IEventBus {
     }
 
     @Override
-    public <E extends IEvent> void unsubscribe(MethodIEventListenerWrapper listener, Class<E> eventType) {
+    public <E extends IEvent<E>> void unsubscribe(MethodIEventListenerWrapper listener, Class<E> eventType) {
         List<MethodIEventListenerWrapper> listeners = registerEventListeners.get(eventType);
         if (IterUtil.isNotEmpty(listeners)) {
             listeners.remove(listener);
@@ -101,7 +116,7 @@ public abstract class AbstractIEventBus implements IEventBus {
      * @param phase         事物
      * @return 结果
      */
-    private EventPublishResult.Builder localPublish(IEvent event, EventRoutingDecision route, EventPublishResult.Builder resultBuilder, boolean async, TransactionPhase phase) {
+    private EventPublishResult.Builder localPublish(IEvent<?> event, EventRoutingDecision route, EventPublishResult.Builder resultBuilder, boolean async, TransactionPhase phase) {
         if (Objects.nonNull(phase)) {
             return localPublishTransactional(event, route, resultBuilder, async, phase);
         }
@@ -118,7 +133,7 @@ public abstract class AbstractIEventBus implements IEventBus {
         return resultBuilder;
     }
 
-    private EventPublishResult.Builder localPublishTransactional(IEvent event, EventRoutingDecision route, EventPublishResult.Builder resultBuilder, boolean async, TransactionPhase phase) {
+    private EventPublishResult.Builder localPublishTransactional(IEvent<?> event, EventRoutingDecision route, EventPublishResult.Builder resultBuilder, boolean async, TransactionPhase phase) {
         switch (phase) {
             case BEFORE_COMMIT: {
                 IEventTransBeforeSpringEvent springEvent = new IEventTransBeforeSpringEvent(this, event, route);
@@ -201,44 +216,43 @@ public abstract class AbstractIEventBus implements IEventBus {
             publishEvent(iEventSpringEvent.getIEvent(), iEventSpringEvent.getEventRoutingDecision());
         }
 
-        private void publishEvent(IEvent iEvent, EventRoutingDecision eventRoutingDecision) {
+        private void publishEvent(IEvent<?> iEvent, EventRoutingDecision eventRoutingDecision) {
             List<MethodIEventListenerWrapper> iEventListeners = eventBus.getRegisterEventListeners().get(iEvent.getClass());
-            if (IterUtil.isEmpty(iEventListeners)) {
-                log.warn("Registered local listener for event type: {},listener is empty", iEvent.getClass().getSimpleName());
-            }
 
-            List<MethodIEventListenerWrapper> listenerWrappers = iEventListeners
-                    .stream()
-                    .filter(l -> l.checkRules(iEvent, eventRoutingDecision.getTopic()))
-                    .collect(Collectors.toList());
-
+            // 处理本地监听器
             if (eventRoutingDecision.shouldPublishLocal()) {
-                listenerWrappers.forEach(listener -> {
-                    try {
-                        listener.onEvent(iEvent);
-                    } catch (EventHandleException e) {
-                        log.error("Failed to process event in method listener", e);
-                    }
-                });
-            }
+                if (IterUtil.isNotEmpty(iEventListeners)) {
+                    List<MethodIEventListenerWrapper> listenerWrappers = iEventListeners
+                            .stream()
+                            .filter(l -> l.checkRules(iEvent, eventRoutingDecision.getTopic()))
+                            .collect(Collectors.toList());
 
-            if (eventRoutingDecision.shouldPublishRemote()) {
-                try {
-                    eventTransports.stream()
-                            .filter(t -> t.getTransportType().equals(eventRoutingDecision.getRemoteType()))
-                            .forEach(eventTransport -> {
-                                try {
-                                    eventTransport.send(iEvent);
-                                } catch (Exception e) {
-                                    log.error("Failed to publish event to transport: {}", eventTransport.getTransportType(), e);
-                                }
-                            });
-
-                } catch (EventHandleException e) {
-                    log.error("Failed to process event in method listener", e);
+                    listenerWrappers.forEach(listener -> {
+                        try {
+                            listener.onEvent(iEvent);
+                        } catch (EventHandleException e) {
+                            log.error("Failed to process event in method listener", e);
+                        }
+                    });
+                } else {
+                    log.debug("No local listeners found for event type: {}", iEvent.getClass().getSimpleName());
                 }
             }
 
+            // 处理远程发送
+            if (eventRoutingDecision.shouldPublishRemote()) {
+                eventTransports.stream()
+                        .filter(t -> t.getTransportType().equals(eventRoutingDecision.getRemoteType()))
+                        .forEach(eventTransport -> {
+                            try {
+                                eventTransport.send(iEvent);
+                                log.debug("Event sent to remote transport: {} -> {}",
+                                        iEvent.getEventId(), eventTransport.getTransportType());
+                            } catch (Exception e) {
+                                log.error("Failed to publish event to transport: {}", eventTransport.getTransportType(), e);
+                            }
+                        });
+            }
         }
     }
 }

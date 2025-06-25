@@ -1,5 +1,6 @@
 package com.ysmjjsy.goya.security.bus.annotation;
 
+import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMqConfig;
 import org.springframework.core.annotation.AliasFor;
 
 import java.lang.annotation.*;
@@ -39,4 +40,10 @@ public @interface IListener {
      * 只有当条件为 true 时才处理事件
      */
     String condition() default "";
+
+    /**
+     * RabbitMQ传输配置
+     */
+    RabbitMqConfig rabbitmq() default @RabbitMqConfig;
+
 }

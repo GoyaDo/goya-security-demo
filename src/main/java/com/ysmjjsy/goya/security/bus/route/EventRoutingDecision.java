@@ -2,9 +2,13 @@ package com.ysmjjsy.goya.security.bus.route;
 
 import com.ysmjjsy.goya.security.bus.enums.BusRemoteType;
 import com.ysmjjsy.goya.security.bus.enums.EventRoutingStrategy;
+import com.ysmjjsy.goya.security.bus.enums.EventType;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+
+import java.time.LocalDateTime;
 
 /**
  * 事件路由决策
@@ -27,52 +31,59 @@ public class EventRoutingDecision {
     private final boolean publishRemote;
 
     /**
-     * 发布的主题
+     * 事件ID
      */
     @Getter
-    private final String topic;
+    @Setter
+    protected String eventId;
 
     /**
-     * 发布策略
+     * 事件类型
      */
     @Getter
-    private final EventRoutingStrategy strategy;
+    @Setter
+    protected EventType eventType;
 
     /**
-     * 远程类型
+     * 事件时间
      */
     @Getter
-    private final BusRemoteType remoteType;
+    protected final LocalDateTime eventTime = LocalDateTime.now();
 
+    /**
+     * 事件主题
+     */
+    @Getter
+    @Setter
+    protected String topic;
 
-    public static EventRoutingDecision localOnly(String topic) {
-        return new EventRoutingDecision(
-                true,
-                false,
-                topic,
-                EventRoutingStrategy.LOCAL_ONLY,
-                null
-        );
-    }
+    /**
+     * 事件路由策略
+     */
+    @Getter
+    @Setter
+    protected EventRoutingStrategy routingStrategy;
 
-    public static EventRoutingDecision remoteOnly(String topic, BusRemoteType remoteType) {
-        return new EventRoutingDecision(
-                false,
-                true,
-                topic,
-                EventRoutingStrategy.REMOTE_ONLY,
-                remoteType);
-    }
+    /**
+     * 远程传输类型
+     */
+    @Getter
+    @Setter
+    protected BusRemoteType remoteType;
 
-    public static EventRoutingDecision localAndRemote(String topic, BusRemoteType remoteType) {
-        return new EventRoutingDecision(
-                true,
-                true,
-                topic,
-                EventRoutingStrategy.LOCAL_AND_REMOTE,
-                remoteType
-        );
-    }
+    /**
+     * 原始服务
+     */
+    @Getter
+    @Setter
+    protected String originalService;
+
+    /**
+     * 目标服务
+     */
+    @Getter
+    @Setter
+    protected String destinationService;
 
     public boolean shouldPublishLocal() {
         return publishLocal;

@@ -29,9 +29,7 @@ public class TestController {
 
     @GetMapping("/event")
     public String publishEvent() {
-        TestEvent event = new TestEvent("test");
-        event.routingStrategy(EventRoutingStrategy.REMOTE_ONLY);
-        event.topic("test");
+        TestEvent event = new TestEvent("test").topic("test").routingStrategy(EventRoutingStrategy.LOCAL_AND_REMOTE);
 
         // 发布事件
         eventBus.publish(event);

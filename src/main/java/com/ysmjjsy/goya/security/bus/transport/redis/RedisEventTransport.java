@@ -52,9 +52,15 @@ public class RedisEventTransport implements EventTransport {
     }
 
     @Override
-    public CompletableFuture<TransportResult> send(IEvent event) {
+    public CompletableFuture<TransportResult> send(IEvent<?> event) {
         return CompletableFuture.supplyAsync(() -> {
             try {
+
+                if (!check(event)) {
+                    return TransportResult.failure(getTransportType(), event.getTopic(), event.getEventId(),
+                            new EventHandleException(event.getEventId(), "Event is local event"));
+                }
+
                 String serializedEvent = eventSerializer.serialize(event);
                 redisTemplate.convertAndSend(event.getTopic(), serializedEvent);
 
@@ -69,12 +75,11 @@ public class RedisEventTransport implements EventTransport {
     }
 
     @Override
-    public <T extends IEvent> void subscribe(String topic, IEventListener<T> listener, Class<T> eventType) {
+    public <E extends IEvent<E>> void subscribe(String topic, IEventListener<E> listener, Class<E> eventType) {
         if (!started) {
             throw new IllegalStateException("Redis transport not started");
         }
 
-        // 修复：直接实现MessageListener接口，避免MessageListenerAdapter的invoker问题
         MessageListener messageListener = new RedisEventMessageListener<>(listener, eventType, eventSerializer, topic);
 
         subscriptions.computeIfAbsent(topic, k -> new ConcurrentHashMap<>())
@@ -129,19 +134,19 @@ public class RedisEventTransport implements EventTransport {
     }
 
     /**
-     * 修复：Redis 消息监听器实现
+     * Redis 消息监听器实现
      * 直接实现MessageListener接口，避免MessageListenerAdapter的复杂性
      */
-    private static class RedisEventMessageListener<T extends IEvent> implements MessageListener {
+    private static class RedisEventMessageListener<E extends IEvent<E>> implements MessageListener {
 
         private static final Logger log = LoggerFactory.getLogger(RedisEventMessageListener.class);
 
-        private final IEventListener<T> listener;
-        private final Class<T> eventType;
+        private final IEventListener<E> listener;
+        private final Class<E> eventType;
         private final EventSerializer eventSerializer;
         private final String topic;
 
-        public RedisEventMessageListener(IEventListener<T> listener, Class<T> eventType,
+        public RedisEventMessageListener(IEventListener<E> listener, Class<E> eventType,
                                          EventSerializer eventSerializer, String topic) {
             this.listener = listener;
             this.eventType = eventType;
@@ -158,7 +163,7 @@ public class RedisEventTransport implements EventTransport {
                 log.debug("Received Redis message on topic '{}': {}", topic, messageBody);
 
                 // 反序列化事件
-                T event = eventSerializer.deserialize(messageBody, eventType);
+                E event = eventSerializer.deserialize(messageBody, eventType);
 
                 // 调用监听器处理事件
                 listener.onEvent(event);

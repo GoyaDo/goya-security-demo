@@ -1,5 +1,7 @@
 package com.ysmjjsy.goya.security.bus.configuration;
 
+import cn.hutool.extra.spring.SpringUtil;
+import com.ysmjjsy.goya.security.bus.bus.AbstractIEventBus;
 import com.ysmjjsy.goya.security.bus.bus.DefaultIEventBus;
 import com.ysmjjsy.goya.security.bus.bus.IEventBus;
 import com.ysmjjsy.goya.security.bus.context.EventListenerAutoRegistrar;
@@ -22,9 +24,11 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
@@ -42,7 +46,8 @@ import java.util.List;
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(BusProperties.class)
 @ConditionalOnProperty(prefix = "bus", name = "enabled", havingValue = "true", matchIfMissing = true)
-public class BusConfig {
+@Import(SpringUtil.class)
+public class BusConfiguration {
 
     @PostConstruct
     public void init() {
@@ -57,8 +62,14 @@ public class BusConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    public EventRouter eventRouter(BusProperties busProperties) {
-        return new DefaultEventRouter(busProperties);
+    public EventRouter eventRouter(BusProperties busProperties, ApplicationContext applicationContext) {
+        return new DefaultEventRouter(busProperties, applicationContext);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AbstractIEventBus.SpringApplicationEventListener springApplicationEventListener(IEventBus iEventBus, List<EventTransport> eventTransports) {
+        return new AbstractIEventBus.SpringApplicationEventListener(iEventBus, eventTransports);
     }
 
     @Bean
@@ -129,7 +140,7 @@ public class BusConfig {
                 busProperties.getRabbitmq().getDefaultExchangeName());
 
         RabbitMQEventTransport transport = new RabbitMQEventTransport(
-                rabbitTemplate, rabbitAdmin, connectionFactory, eventSerializer, busProperties,managementTool);
+                rabbitTemplate, rabbitAdmin, connectionFactory, eventSerializer, busProperties, managementTool);
 
         // 启动传输服务
         transport.start();

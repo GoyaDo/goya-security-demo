@@ -2,6 +2,7 @@ package com.ysmjjsy.goya.security.bus.transport.rabbitmq;
 
 import com.ysmjjsy.goya.security.bus.domain.IEvent;
 import com.ysmjjsy.goya.security.bus.enums.BusRemoteType;
+import com.ysmjjsy.goya.security.bus.exception.EventHandleException;
 import com.ysmjjsy.goya.security.bus.listener.IEventListener;
 import com.ysmjjsy.goya.security.bus.properties.BusProperties;
 import com.ysmjjsy.goya.security.bus.serializer.EventSerializer;
@@ -94,9 +95,14 @@ public class RabbitMQEventTransport implements EventTransport {
     }
 
     @Override
-    public CompletableFuture<TransportResult> send(IEvent event) {
+    public CompletableFuture<TransportResult> send(IEvent<?> event) {
         return CompletableFuture.supplyAsync(() -> {
             try {
+                if (!check(event)) {
+                    return TransportResult.failure(getTransportType(), event.getTopic(), event.getEventId(),
+                            new EventHandleException(event.getEventId(), "Event is local event"));
+                }
+
                 if (!eventBusProperties.getRabbitmq().isEnabled()) {
                     return TransportResult.failure(getTransportType(), event.getTopic(), event.getEventId(), 
                             new IllegalStateException("RabbitMQ transport is disabled"));
@@ -143,7 +149,7 @@ public class RabbitMQEventTransport implements EventTransport {
     }
 
     @Override
-    public <T extends IEvent> void subscribe(String topic, IEventListener<T> listener, Class<T> eventType) {
+    public <E extends IEvent<E>> void subscribe(String topic, IEventListener<E> listener, Class<E> eventType) {
         if (!started) {
             throw new IllegalStateException("RabbitMQ transport not started");
         }
@@ -165,7 +171,7 @@ public class RabbitMQEventTransport implements EventTransport {
             rabbitAdmin.declareBinding(binding);
             
             // 创建消息监听器
-            RabbitMQEventMessageListener<T> messageListener = 
+            RabbitMQEventMessageListener<E> messageListener =
                     new RabbitMQEventMessageListener<>(listener, eventType, eventSerializer, topic, this);
             
             // 创建消息监听容器

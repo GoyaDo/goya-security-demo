@@ -1,16 +1,16 @@
 package com.ysmjjsy.goya.security.bus.domain;
 
-import cn.hutool.core.util.IdUtil;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.ysmjjsy.goya.security.bus.enums.BusRemoteType;
 import com.ysmjjsy.goya.security.bus.enums.EventRoutingStrategy;
 import com.ysmjjsy.goya.security.bus.enums.EventType;
-import lombok.EqualsAndHashCode;
-import lombok.Getter;
-import lombok.ToString;
+import lombok.*;
+import lombok.experimental.SuperBuilder;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
+
+
 
 /**
  * <p>统一事件接口</p>
@@ -19,23 +19,26 @@ import java.time.LocalDateTime;
  * @author goya
  * @since 2025/6/24 15:40
  */
+@SuperBuilder
 @ToString
 @EqualsAndHashCode(callSuper = false)
 @Getter
+@NoArgsConstructor
+@AllArgsConstructor
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "@type")
-public abstract class IEvent implements Serializable {
+public abstract class IEvent<E extends IEvent<E>> implements Serializable {
 
     private static final long serialVersionUID = 5801852503405243664L;
 
     /**
      * 事件ID
      */
-    protected final String eventId;
+    protected String eventId;
 
     /**
      * 事件类型
      */
-    protected final EventType eventType;
+    protected EventType eventType;
 
     /**
      * 事件时间
@@ -57,28 +60,55 @@ public abstract class IEvent implements Serializable {
      */
     protected BusRemoteType remoteType;
 
-    protected IEvent(String eventId, EventType eventType) {
+    /**
+     * 原始服务
+     */
+    protected String originalService;
+
+    /**
+     * 目标服务
+     */
+    protected String destinationService;
+
+    @SuppressWarnings("unchecked")
+    protected E self() {
+        return (E) this;
+    }
+
+    public E eventId(String eventId) {
         this.eventId = eventId;
+        return self();
+    }
+
+    public E eventType(EventType eventType) {
         this.eventType = eventType;
+        return self();
     }
 
-    protected IEvent() {
-        this(IdUtil.getSnowflakeNextIdStr(), EventType.DEFAULT);
-    }
 
-    protected IEvent(EventType eventType) {
-        this(IdUtil.getSnowflakeNextIdStr(),eventType);
-    }
-
-    public void topic(String topic) {
+    public E topic(String topic) {
         this.topic = topic;
+        return self();
     }
 
-    public void routingStrategy(EventRoutingStrategy routingStrategy) {
+    public E routingStrategy(EventRoutingStrategy routingStrategy) {
         this.routingStrategy = routingStrategy;
+        return self();
     }
 
-    public void remoteType(BusRemoteType remoteType) {
+    public E remoteType(BusRemoteType remoteType) {
         this.remoteType = remoteType;
+        return self();
+    }
+
+    public E originalService(String originalService) {
+        this.originalService = originalService;
+        return self();
+    }
+
+    public E destinationService(String destinationService) {
+        this.destinationService = destinationService;
+        return self();
     }
 }
+

@@ -4,7 +4,8 @@ spring:
   docker:
     compose:
       enabled: false
-
+  application:
+    name: goya-security-demo
 logging:
   config: classpath:logback-plus.xml
 ---
@@ -23,6 +24,9 @@ bus:
   default-topic: "bus-event-default"
   default-routing-strategy: remote_only
   default-remote-type: rabbitmq
+  # 分布式事件处理器配置
+  distributed-handler:
+    enabled: true                           # 启用分布式事件处理器
   # RabbitMQ传输配置
   rabbitmq:
     enabled: true                           # 启用RabbitMQ传输

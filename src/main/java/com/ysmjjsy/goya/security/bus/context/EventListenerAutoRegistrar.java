@@ -7,7 +7,9 @@ import com.ysmjjsy.goya.security.bus.listener.IEventListener;
 import com.ysmjjsy.goya.security.bus.processor.EventTypeResolver;
 import com.ysmjjsy.goya.security.bus.processor.MethodIEventListenerWrapper;
 import com.ysmjjsy.goya.security.bus.properties.BusProperties;
+import com.ysmjjsy.goya.security.bus.registry.ListenerRegistryManager;
 import com.ysmjjsy.goya.security.bus.transport.EventTransport;
+import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMqConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -84,6 +86,14 @@ public class EventListenerAutoRegistrar implements SmartInitializingSingleton, A
             log.info("=== 事件监听器自动注册完成 ===");
             log.info("接口监听器: {}, 注解监听器: {}, 总计: {}",
                     interfaceListeners, annotationListeners, totalRegistered);
+
+            // 打印注册状态摘要
+            try {
+                ListenerRegistryManager registryManager = applicationContext.getBean(ListenerRegistryManager.class);
+                registryManager.printRegistrySummary();
+            } catch (Exception registryException) {
+                log.debug("ListenerRegistryManager不可用，跳过状态摘要: {}", registryException.getMessage());
+            }
 
         } catch (Exception e) {
             log.error("事件监听器自动注册失败", e);
@@ -341,6 +351,11 @@ public class EventListenerAutoRegistrar implements SmartInitializingSingleton, A
             public String condition() {
                 return "";
             }
+
+            @Override
+            public RabbitMqConfig rabbitmq() {
+                return null;
+            }
         };
     }
 
@@ -359,6 +374,16 @@ public class EventListenerAutoRegistrar implements SmartInitializingSingleton, A
                                     Class<? extends IEvent> eventType) {
         try {
             eventBus.subscribe(wrapper, eventType);
+
+            // 注册到状态管理器
+            try {
+                ListenerRegistryManager registryManager = applicationContext.getBean(ListenerRegistryManager.class);
+                String topic = wrapper.getTopic();
+                registryManager.registerLocalEventType(eventType, topic != null ? topic : "");
+            } catch (Exception registryException) {
+                log.debug("ListenerRegistryManager不可用，跳过状态注册: {}", registryException.getMessage());
+            }
+
             log.debug("注册到EventBus: {} -> {}", wrapper.getClass().getSimpleName(), eventType.getSimpleName());
         } catch (Exception e) {
             log.error("注册到EventBus失败: {} -> {}", wrapper.getClass().getSimpleName(), eventType.getSimpleName(), e);
@@ -382,6 +407,15 @@ public class EventListenerAutoRegistrar implements SmartInitializingSingleton, A
         for (EventTransport transport : eventTransports) {
             try {
                 transport.subscribe(topic, (IEventListener) wrapper, (Class) eventType);
+
+                // 注册到状态管理器
+                try {
+                    ListenerRegistryManager registryManager = applicationContext.getBean(ListenerRegistryManager.class);
+                    registryManager.registerRemoteEventType(eventType, topic);
+                } catch (Exception registryException) {
+                    log.debug("ListenerRegistryManager不可用，跳过远程状态注册: {}", registryException.getMessage());
+                }
+
                 log.debug("注册到{}: {} -> {} (topic: {})",
                         transport.getTransportType(), wrapper.getClass().getSimpleName(),
                         eventType.getSimpleName(), topic);
