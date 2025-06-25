@@ -35,9 +35,8 @@ public class TestController {
     @GetMapping("/event")
     public String publishEvent() {
         TestEvent event = new TestEvent("test")
-                .topic("test")
-                .routingStrategy(EventRoutingStrategy.REMOTE_ONLY)
-                ;
+                .topic("bus.test")
+                .routingStrategy(EventRoutingStrategy.REMOTE_ONLY);
         event.setDelayMillis(1000);
 
 //        event.setRoutingKey("test-simple-queue");

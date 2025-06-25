@@ -42,6 +42,7 @@ public class DelayQueueManager {
 
     private final RabbitAdmin rabbitAdmin;
     private final BusProperties busProperties;
+    private final RabbitMQManagementTool managementTool;
 
     /**
      * 延迟交换器缓存
@@ -98,8 +99,42 @@ public class DelayQueueManager {
         // 更新使用时间
         delayQueueLastUsed.put(delaySeconds, System.currentTimeMillis());
 
-        return delayQueues.computeIfAbsent(delaySeconds,
-                seconds -> createDelayQueue(seconds, targetExchange, targetRoutingKey));
+        // 先检查本地缓存
+        Queue cachedQueue = delayQueues.get(delaySeconds);
+        if (cachedQueue != null) {
+            return cachedQueue;
+        }
+
+        // 使用 RabbitMQ 服务检查队列是否已存在
+        String queueName = getDelayQueueName(delaySeconds, targetRoutingKey);
+        try {
+            if (managementTool.queueExists(queueName)) {
+                // 队列已存在，直接创建队列对象并缓存
+                Map<String, Object> args = new HashMap<>();
+                args.put("x-message-ttl", delaySeconds * 1000L);
+                args.put("x-dead-letter-exchange", targetExchange);
+                if (org.apache.commons.lang3.StringUtils.isNotBlank(targetRoutingKey)) {
+                    args.put("x-dead-letter-routing-key", targetRoutingKey);
+                }
+                
+                Queue existingQueue = QueueBuilder.durable(queueName).withArguments(args).build();
+                delayQueues.put(delaySeconds, existingQueue);
+                log.debug("延迟队列 '{}' 已存在于 RabbitMQ 服务器，使用现有队列", queueName);
+                return existingQueue;
+            }
+        } catch (Exception e) {
+            log.debug("检查延迟队列 '{}' 是否存在时出错: {}", queueName, e.getMessage());
+        }
+
+        // 队列不存在，需要创建
+        try {
+            Queue newQueue = createDelayQueue(delaySeconds, targetExchange, targetRoutingKey);
+            delayQueues.put(delaySeconds, newQueue);
+            return newQueue;
+        } catch (Exception e) {
+            log.error("创建延迟队列 '{}' 失败: {}", queueName, e.getMessage());
+            throw new RuntimeException("创建延迟队列失败: " + queueName, e);
+        }
     }
 
     /**

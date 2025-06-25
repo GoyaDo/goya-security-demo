@@ -618,12 +618,23 @@ public class RabbitMQEventTransport implements EventTransport {
     private AbstractExchange getOrCreateExchangeWithConfig(RabbitMqConfigModel config) {
         String exchangeName = config.getEffectiveExchange();
 
-        return exchanges.computeIfAbsent(exchangeName, name -> {
-            AbstractExchange exchange = createExchangeByType(exchangeName, config);
+        // 先检查本地缓存
+        AbstractExchange cachedExchange = exchanges.get(exchangeName);
+        if (cachedExchange != null) {
+            return cachedExchange;
+        }
+
+        // 直接创建交换器对象并声明（RabbitMQ 声明操作是幂等的）
+        AbstractExchange exchange = createExchangeByType(exchangeName, config);
+        try {
             rabbitAdmin.declareExchange(exchange);
-            log.debug("Created {} exchange: {}", config.getEffectiveExchangeType(), exchangeName);
+            exchanges.put(exchangeName, exchange);
+            log.debug("Declared {} exchange: {}", config.getEffectiveExchangeType(), exchangeName);
             return exchange;
-        });
+        } catch (Exception e) {
+            log.error("Failed to declare exchange '{}': {}", exchangeName, e.getMessage());
+            throw new RuntimeException("Failed to declare exchange: " + exchangeName, e);
+        }
     }
 
     /**
@@ -653,14 +664,41 @@ public class RabbitMQEventTransport implements EventTransport {
     private Queue createQueueForSubscriptionWithConfig(RabbitMqConfigModel config, String topic, IEventListener<?> listener) {
         String queueName = generateQueueName(config, topic, listener);
 
-        return queues.computeIfAbsent(queueName, name -> {
-            try {
-                return createQueueWithConfig(name, config);
-            } catch (Exception e) {
-                log.warn("Failed to create queue '{}' with full config, trying with simplified config: {}", name, e.getMessage());
-                return createSimplifiedQueue(name, config);
+        // 先检查本地缓存
+        Queue cachedQueue = queues.get(queueName);
+        if (cachedQueue != null) {
+            return cachedQueue;
+        }
+
+        // 使用 RabbitMQ 服务检查队列是否已存在
+        try {
+            if (managementTool.queueExists(queueName)) {
+                // 队列已存在，直接创建队列对象并缓存
+                Queue existingQueue = new Queue(queueName, config.isDurableQueue());
+                queues.put(queueName, existingQueue);
+                log.debug("Queue '{}' already exists in RabbitMQ server, using existing queue", queueName);
+                return existingQueue;
             }
-        });
+        } catch (Exception e) {
+            log.debug("Error checking queue existence for '{}': {}", queueName, e.getMessage());
+        }
+
+        // 队列不存在，需要创建
+        try {
+            Queue newQueue = createQueueWithConfig(queueName, config);
+            queues.put(queueName, newQueue);
+            return newQueue;
+        } catch (Exception e) {
+            log.warn("Failed to create queue '{}' with full config, trying with simplified config: {}", queueName, e.getMessage());
+            try {
+                Queue simplifiedQueue = createSimplifiedQueue(queueName, config);
+                queues.put(queueName, simplifiedQueue);
+                return simplifiedQueue;
+            } catch (Exception ex) {
+                log.error("Failed to create simplified queue '{}': {}", queueName, ex.getMessage());
+                throw new RuntimeException("Failed to create queue: " + queueName, ex);
+            }
+        }
     }
 
     /**
@@ -674,7 +712,7 @@ public class RabbitMQEventTransport implements EventTransport {
             arguments.put("x-message-ttl", config.getMessageTtl());
         }
 
-        Queue queue = new Queue(queueName, config.isDurableQueue(), config.isDurableQueue(), false, arguments);
+        Queue queue = new Queue(queueName, config.isDurableQueue(), false, false, arguments);
         rabbitAdmin.declareQueue(queue);
         log.debug("Created queue with config: {}", queueName);
         return queue;

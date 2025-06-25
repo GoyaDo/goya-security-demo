@@ -137,10 +137,22 @@ public class BusConfiguration {
             return new RabbitMqConfigResolver(busProperties);
         }
 
+        /**
+         * RabbitMQ 管理工具
+         */
+        @Bean("rabbitMQManagementTool")
+        @ConditionalOnProperty(prefix = "bus.rabbitmq", name = "enabled", havingValue = "true")
+        public RabbitMQManagementTool rabbitMQManagementTool(RabbitAdmin rabbitAdmin, BusProperties busProperties) {
+            log.info("Creating RabbitMQ management tool");
+            return new RabbitMQManagementTool(rabbitAdmin, busProperties);
+        }
+
         @Bean
         @ConditionalOnMissingBean
-        public DelayQueueManager delayQueueManager(RabbitAdmin rabbitAdmin, BusProperties busProperties) {
-            return new DelayQueueManager(rabbitAdmin, busProperties);
+        public DelayQueueManager delayQueueManager(RabbitAdmin rabbitAdmin, 
+                                                  BusProperties busProperties,
+                                                  @Qualifier("rabbitMQManagementTool") RabbitMQManagementTool managementTool) {
+            return new DelayQueueManager(rabbitAdmin, busProperties, managementTool);
         }
 
         /**
@@ -174,16 +186,6 @@ public class BusConfiguration {
         @ConditionalOnProperty(prefix = "bus.rabbitmq", name = "retry-queue", havingValue = "true")
         public RabbitMQRetryQueueListener rabbitMQRetryQueueListener(RabbitTemplate rabbitTemplate) {
             return new RabbitMQRetryQueueListener(rabbitTemplate);
-        }
-
-        /**
-         * RabbitMQ 管理工具
-         */
-        @Bean("rabbitMQManagementTool")
-        @ConditionalOnProperty(prefix = "bus.rabbitmq", name = "enabled", havingValue = "true")
-        public RabbitMQManagementTool rabbitMQManagementTool(RabbitAdmin rabbitAdmin, BusProperties busProperties) {
-            log.info("Creating RabbitMQ management tool");
-            return new RabbitMQManagementTool(rabbitAdmin, busProperties);
         }
     }
 }

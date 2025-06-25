@@ -18,7 +18,7 @@ public class TestEventListener {
     /**
      * 基础的事件监听器，使用简单的队列配置
      */
-    @IListener(topic = "test")
+    @IListener(topic = "bus.test")
     public void onTestEvent(TestEvent event) {
         log.info("接收到基础测试事件: {}", event);
     }
@@ -26,7 +26,7 @@ public class TestEventListener {
     /**
      * 基础的事件监听器，使用简单的队列配置
      */
-    @IListener(topic = "test1")
+    @IListener(topic = "bus.test1")
     public void onTestEvent1(TestEvent event) {
         log.info("接收到基础测试事件: {}", event);
     }
@@ -34,7 +34,7 @@ public class TestEventListener {
     /**
      * 基础的事件监听器，使用简单的队列配置
      */
-    @IListener(topic = "test3")
+    @IListener(topic = "bus.test3")
     public void onTestEvent3(TestEvent event) {
         log.info("接收到基础测试事件: {}", event);
     }
