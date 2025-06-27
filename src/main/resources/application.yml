@@ -18,37 +18,14 @@ management:
     health:
       show-details: always   # 显示详细健康信息，可选：never, when-authorized, always
 
-# Bus配置
-bus:
-  enabled: true
-  default-topic: "bus-event-default"
-  default-routing-strategy: remote_only
-  default-remote-type: rabbitmq                     # 启用分布式事件处理器
-  redis:
-    enabled: true
-  # RabbitMQ传输配置
-  rabbitmq:
-    enabled: true                           # 启用RabbitMQ传输
-    default-exchange-name: ${spring.application.name}
-    exchange-type: "topic"
-    durable-exchange: true
-    auto-delete-exchange: false
-    durable-queue: true
-    acknowledgment-mode: "manual"
-    prefetch-count: 10
-    message-ttl: 3600000                    # 1小时TTL (毫秒)
-    dead-letter-exchange: ${spring.application.name}-dead-letter # 死信交换器
-    retry-attempts: 3                       # 重试次数
-    retry-interval: 5000                    # 重试延迟间隔 (毫秒)
-    auto-cleanup-conflicts: true            # 自动清理冲突队列
-    retry-queue: true
+
 
 ---
 # Redis配置
 spring:
   data:
     redis:
-      database: 14
+      database: 15
       host: 118.195.138.5
       password: liveRedis123.@
       port: 6379
@@ -99,3 +76,10 @@ spring:
           multiplier: 2                # 重试间隔倍数
 
 ---
+---
+bus:
+  enabled: true
+  redis:
+    enabled: true
+  rabbitmq:
+    enabled: true

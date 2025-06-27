@@ -1,0 +1,43 @@
+package com.ysmjjsy.goya.security.example;
+
+import com.ysmjjsy.goya.security.bus.annotation.IListener;
+import com.ysmjjsy.goya.security.bus.enums.ConsumeResult;
+import com.ysmjjsy.goya.security.bus.enums.MessageModel;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+/**
+ * 用户事件监听器示例
+ *
+ * @author goya
+ * @since 2025/6/24
+ */
+@Slf4j
+@Component
+public class UserEventListener {
+
+    /**
+     * 方法级监听器示例 - 处理用户创建事件
+     */
+    @IListener(
+            messageModel = MessageModel.TOPIC,
+            eventType = "user.created",
+            concurrency = 2,
+            batchSize = 1,
+            description = "处理用户创建事件"
+    )
+    public ConsumeResult handleUserCreated(UserCreatedEvent event) {
+        try {
+            log.info("Processing user created event: {}", event);
+            // 模拟业务处理
+            Thread.sleep(100);
+
+            log.info("User created event processed successfully: {}", event.getEventId());
+            return ConsumeResult.SUCCESS;
+
+        } catch (Exception e) {
+            log.error("Failed to process user created event: {}", event.getEventId(), e);
+            return ConsumeResult.RETRY;
+        }
+    }
+} 

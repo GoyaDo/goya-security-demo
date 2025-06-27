@@ -1,51 +1,55 @@
 package com.ysmjjsy.goya.security.bus.configuration;
 
 import cn.hutool.extra.spring.SpringUtil;
-import com.ysmjjsy.goya.security.bus.bus.AbstractIEventBus;
-import com.ysmjjsy.goya.security.bus.bus.DefaultIEventBus;
-import com.ysmjjsy.goya.security.bus.bus.IEventBus;
+import com.ysmjjsy.goya.security.bus.api.IEventBus;
 import com.ysmjjsy.goya.security.bus.configuration.properties.BusProperties;
-import com.ysmjjsy.goya.security.bus.context.EventListenerAutoRegistrar;
-import com.ysmjjsy.goya.security.bus.route.DefaultEventRouter;
-import com.ysmjjsy.goya.security.bus.route.EventRouter;
-import com.ysmjjsy.goya.security.bus.serializer.EventSerializer;
-import com.ysmjjsy.goya.security.bus.serializer.JacksonEventSerializer;
-import com.ysmjjsy.goya.security.bus.transport.EventTransport;
-import com.ysmjjsy.goya.security.bus.transport.rabbitmq.*;
-import com.ysmjjsy.goya.security.bus.transport.redis.RedisEventTransport;
+import com.ysmjjsy.goya.security.bus.core.DefaultEventBus;
+import com.ysmjjsy.goya.security.bus.core.EventListenerBeanPostProcessor;
+import com.ysmjjsy.goya.security.bus.core.LocalEventBus;
+import com.ysmjjsy.goya.security.bus.decision.DefaultMessageConfigDecisionEngine;
+import com.ysmjjsy.goya.security.bus.decision.MessageConfigDecision;
+import com.ysmjjsy.goya.security.bus.duplicate.MessageDeduplicator;
+import com.ysmjjsy.goya.security.bus.route.DefaultRoutingStrategy;
+import com.ysmjjsy.goya.security.bus.route.RoutingStrategy;
+import com.ysmjjsy.goya.security.bus.route.RoutingStrategyManager;
+import com.ysmjjsy.goya.security.bus.serializer.JsonMessageSerializer;
+import com.ysmjjsy.goya.security.bus.serializer.MessageSerializer;
+import com.ysmjjsy.goya.security.bus.store.MessageStore;
+import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMQRoutingStrategy;
+import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMQTransport;
+import com.ysmjjsy.goya.security.bus.transport.redis.RedisMessageDeduplicator;
+import com.ysmjjsy.goya.security.bus.transport.redis.RedisMessageStore;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
-import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationContext;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
-import org.springframework.data.redis.connection.RedisConnectionFactory;
-import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.listener.RedisMessageListenerContainer;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
-import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ThreadPoolExecutor;
 
 /**
- * <p>事件消息总线配置</p>
+ * <p></p>
  *
  * @author goya
- * @since 2025/6/24 14:37
+ * @since 2025/6/27 15:05
  */
 @Slf4j
 @RequiredArgsConstructor
 @Configuration(proxyBeanMethods = false)
+@Import(SpringUtil.class)
 @EnableConfigurationProperties(BusProperties.class)
 @ConditionalOnProperty(prefix = "bus", name = "enabled", havingValue = "true", matchIfMissing = true)
-@Import(SpringUtil.class)
 public class BusConfiguration {
 
     @PostConstruct
@@ -54,138 +58,144 @@ public class BusConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean
-    public EventSerializer eventSerializer() {
-        return new JacksonEventSerializer();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public EventRouter eventRouter(BusProperties busProperties, ApplicationContext applicationContext) {
-        return new DefaultEventRouter(busProperties, applicationContext);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public AbstractIEventBus.SpringApplicationEventListener springApplicationEventListener(IEventBus iEventBus, List<EventTransport> eventTransports) {
-        return new AbstractIEventBus.SpringApplicationEventListener(iEventBus, eventTransports);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public IEventBus iEventBus(ApplicationEventPublisher applicationEventPublisher,
-                               List<EventTransport> eventTransports,
-                               EventRouter eventRouter) {
-        log.debug("config [bus] | load the bus: defaultIEventBus");
-        return new DefaultIEventBus(applicationEventPublisher, eventTransports, eventRouter);
+    public EventListenerBeanPostProcessor eventListenerBeanPostProcessor(IEventBus iEventBus,
+                                                                         BusProperties properties,
+                                                                         LocalEventBus localEventBus,
+                                                                         MessageConfigDecision messageConfigDecision
+    ) {
+        return new EventListenerBeanPostProcessor(iEventBus, properties, localEventBus, messageConfigDecision);
     }
 
     /**
-     * 智能事件监听器自动注册器
+     * 消息序列化器
+     *
+     * @return 消息序列化器
      */
     @Bean
-    public EventListenerAutoRegistrar eventListenerAutoRegistrar(BusProperties busProperties) {
-        log.info("Enabling smart event listener auto-registration using SmartInitializingSingleton");
-        return new EventListenerAutoRegistrar(busProperties);
+    @ConditionalOnMissingBean
+    public MessageSerializer messageSerializer() {
+        return new JsonMessageSerializer();
     }
 
-    @ConditionalOnProperty(prefix = "bus.redis", name = "enabled", havingValue = "true")
+    /**
+     * 消息配置智能决策引擎
+     *
+     * @return 消息配置智能决策引擎
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public MessageConfigDecision messageConfigDecision(BusProperties busProperties) {
+        return new DefaultMessageConfigDecisionEngine(busProperties);
+    }
+
+    @Bean
+    public DefaultRoutingStrategy defaultRoutingStrategy(ApplicationContext applicationContext, BusProperties busProperties) {
+        return new DefaultRoutingStrategy(applicationContext, busProperties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public RoutingStrategyManager routingStrategyManager(Map<String, RoutingStrategy> routingStrategyMap) {
+        return new RoutingStrategyManager(routingStrategyMap);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public LocalEventBus localEventBus() {
+        return new LocalEventBus();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public IEventBus iEventBus(MessageConfigDecision messageConfigDecision,
+                               TaskExecutor busTaskExecutor,
+                               LocalEventBus localEventBus,
+                               MessageSerializer messageSerializer,
+                               MessageStore messageStore,
+                               MessageDeduplicator messageDeduplicator) {
+        return new DefaultEventBus(
+                messageConfigDecision,
+                busTaskExecutor,
+                localEventBus,
+                messageSerializer,
+                messageStore,
+                messageDeduplicator
+        );
+    }
+
+    /**
+     * 创建框架专用线程池
+     *
+     * @param properties 配置属性
+     * @return 线程池执行器
+     */
+    @Bean("busTaskExecutor")
+    public TaskExecutor busTaskExecutor(BusProperties properties) {
+        BusProperties.Executor executorConfig = properties.getExecutor();
+
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(executorConfig.getCorePoolSize());
+        executor.setMaxPoolSize(executorConfig.getMaxPoolSize());
+        executor.setQueueCapacity(executorConfig.getQueueCapacity());
+        executor.setThreadNamePrefix(executorConfig.getThreadNamePrefix());
+        executor.setKeepAliveSeconds(executorConfig.getKeepAliveSeconds());
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(60);
+        executor.initialize();
+
+        log.info("Unified MQ TaskExecutor initialized with corePoolSize={}, maxPoolSize={}, queueCapacity={}",
+                executorConfig.getCorePoolSize(),
+                executorConfig.getMaxPoolSize(),
+                executorConfig.getQueueCapacity());
+
+        return executor;
+    }
+
+    @Slf4j
     @Configuration(proxyBeanMethods = false)
-    static class RedisBusConfiguration {
-        @Bean
-        public RedisMessageListenerContainer redisMessageListenerContainer(RedisConnectionFactory connectionFactory) {
-            RedisMessageListenerContainer container = new RedisMessageListenerContainer();
-            container.setConnectionFactory(connectionFactory);
-            log.trace("[Goya] |- Bean [Redis Message Listener Container] Configure.");
-            return container;
+    @ConditionalOnProperty(prefix = "bus.rabbitmq", name = "enabled", havingValue = "true", matchIfMissing = true)
+    static class RabbitMqConfiguration {
+
+        @PostConstruct
+        public void init() {
+            log.info("config [bus] | load [rabbitmq] configuration");
         }
 
         @Bean
-        public RedisEventTransport redisEventTransport(RedisTemplate<String, String> redisTemplate,
-                                                       EventSerializer eventSerializer,
-                                                       @Qualifier("redisMessageListenerContainer") RedisMessageListenerContainer messageListenerContainer) {
-            log.info("Creating Redis event transport");
-            RedisEventTransport transport = new RedisEventTransport(redisTemplate, eventSerializer, messageListenerContainer);
-            transport.start();
-            return transport;
+        public RabbitMQTransport rabbitMQTransport(RabbitTemplate rabbitTemplate,
+                                                   ConnectionFactory connectionFactory,
+                                                   @Qualifier("rabbitMQRoutingStrategy") RoutingStrategy routingStrategy
+        ) {
+            return new RabbitMQTransport(rabbitTemplate, connectionFactory, routingStrategy);
+        }
+
+        @Bean
+        public RabbitMQRoutingStrategy rabbitMQRoutingStrategy(ApplicationContext applicationContext, BusProperties busProperties) {
+            return new RabbitMQRoutingStrategy(applicationContext, busProperties);
         }
     }
 
-    @ConditionalOnProperty(prefix = "bus.rabbitmq", name = "enabled", havingValue = "true")
+    @Slf4j
     @Configuration(proxyBeanMethods = false)
-    static class RabbitMqBusConfiguration {
+    @ConditionalOnProperty(prefix = "bus.redis", name = "enabled", havingValue = "true", matchIfMissing = true)
+    static class RedisConfiguration {
 
-        /**
-         * RabbitMQ 管理器
-         * 用于声明和管理RabbitMQ资源（交换器、队列、绑定等）
-         */
-        @Bean
-        @ConditionalOnProperty(prefix = "bus.rabbitmq", name = "enabled", havingValue = "true")
-        public RabbitAdmin rabbitAdmin(ConnectionFactory connectionFactory) {
-            RabbitAdmin admin = new RabbitAdmin(connectionFactory);
-
-            // 设置自动启动
-            admin.setAutoStartup(true);
-
-            log.info("Created RabbitAdmin for event transport");
-            return admin;
+        @PostConstruct
+        public void init() {
+            log.info("config [bus] | load [redis] configuration");
         }
 
         @Bean
         @ConditionalOnMissingBean
-        public RabbitMqConfigResolver rabbitMqConfigResolver(BusProperties busProperties) {
-            return new RabbitMqConfigResolver(busProperties);
-        }
-
-        /**
-         * RabbitMQ 管理工具
-         */
-        @Bean("rabbitMQManagementTool")
-        @ConditionalOnProperty(prefix = "bus.rabbitmq", name = "enabled", havingValue = "true")
-        public RabbitMQManagementTool rabbitMQManagementTool(RabbitAdmin rabbitAdmin, BusProperties busProperties) {
-            log.info("Creating RabbitMQ management tool");
-            return new RabbitMQManagementTool(rabbitAdmin, busProperties);
+        public MessageStore messageStore() {
+            return new RedisMessageStore();
         }
 
         @Bean
         @ConditionalOnMissingBean
-        public DelayQueueManager delayQueueManager(RabbitAdmin rabbitAdmin, 
-                                                  BusProperties busProperties,
-                                                  @Qualifier("rabbitMQManagementTool") RabbitMQManagementTool managementTool) {
-            return new DelayQueueManager(rabbitAdmin, busProperties, managementTool);
-        }
-
-        /**
-         * RabbitMQ 事件传输
-         * 启动时自动启动传输服务
-         */
-        @Bean
-        @ConditionalOnProperty(prefix = "bus.rabbitmq", name = "enabled", havingValue = "true")
-        public RabbitMQEventTransport rabbitMQEventTransport(RabbitTemplate rabbitTemplate,
-                                                             RabbitAdmin rabbitAdmin,
-                                                             ConnectionFactory connectionFactory,
-                                                             EventSerializer eventSerializer,
-                                                             BusProperties busProperties,
-                                                             RabbitMqConfigResolver rabbitMqConfigResolver,
-                                                             DelayQueueManager delayQueueManager,
-                                                             @Qualifier("rabbitMQManagementTool") RabbitMQManagementTool managementTool) {
-            log.info("Creating RabbitMQ event transport with exchange: {}",
-                    busProperties.getRabbitmq().getDefaultExchangeName());
-
-            RabbitMQEventTransport transport = new RabbitMQEventTransport(
-                    rabbitTemplate, rabbitAdmin, connectionFactory, eventSerializer, busProperties, rabbitMqConfigResolver, managementTool, delayQueueManager);
-
-            // 启动传输服务
-            transport.start();
-
-            return transport;
-        }
-
-        @Bean
-        @ConditionalOnMissingBean
-        @ConditionalOnProperty(prefix = "bus.rabbitmq", name = "retry-queue", havingValue = "true")
-        public RabbitMQRetryQueueListener rabbitMQRetryQueueListener(RabbitTemplate rabbitTemplate) {
-            return new RabbitMQRetryQueueListener(rabbitTemplate);
+        public MessageDeduplicator messageDeduplicator() {
+            return new RedisMessageDeduplicator();
         }
     }
 }
