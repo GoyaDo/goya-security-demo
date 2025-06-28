@@ -10,7 +10,7 @@ import java.util.Map;
 
 /**
  * 消息配置提示类
- * 
+ * <p>
  * 使用建造者模式为智能决策引擎提供配置提示
  * 这些提示将影响消息的模型、类型、可靠性、路由、传输方式等
  *
@@ -24,22 +24,17 @@ public class MessageConfigHint {
     /**
      * 消息模型提示 - QUEUE 或 TOPIC
      */
-    private MessageModel messageModel;
+    private EventModel messageModel;
 
     /**
      * 消息类型提示 - NORMAL, DELAYED, SCHEDULED, ORDERED
      */
-    private MessageType messageType;
+    private EventType eventType;
 
     /**
      * 可靠性级别提示 - FIRE_AND_FORGET, RELIABLE, TRANSACTIONAL
      */
     private ReliabilityLevel reliabilityLevel;
-
-    /**
-     * 路由范围提示 - LOCAL_ONLY, REMOTE_ONLY, AUTO
-     */
-    private RouteScope routeScope;
 
     /**
      * 传输层偏好 - RABBITMQ, KAFKA, ROCKETMQ, REDIS, LOCAL
@@ -62,22 +57,15 @@ public class MessageConfigHint {
     private String sequenceKey;
 
     /**
-     * 是否对性能敏感
-     * true表示优先考虑性能，可能牺牲一些可靠性
-     */
-    @Builder.Default
-    private Boolean performanceSensitive = false;
-
-    /**
-     * 业务优先级
-     * 用于指导框架在资源有限时的处理策略
-     */
-    private BusinessPriority businessPriority;
-
-    /**
      * 消息TTL（生存时间）
      */
-    private Duration messageTtl;
+    private Duration ttl;
+
+    /**
+     * 是否本地记录
+     */
+    @Builder.Default
+    private boolean localRecord = true;
 
     /**
      * 是否持久化
@@ -103,32 +91,21 @@ public class MessageConfigHint {
     private Boolean enableEncryption = false;
 
     /**
+     * 是否启用幂等
+     */
+    @Builder.Default
+    private Boolean idempotence = false;
+
+    /**
+     * 事务ID
+     */
+    private String transactionalId;
+
+    /**
      * 自定义属性
-     * 用于传递额外的业务提示信息
+     * 用于传递额外信息
      */
-    private Map<String, Object> customProperties;
-
-    /**
-     * 创建仅本地路由的提示
-     *
-     * @return 本地路由提示
-     */
-    public static MessageConfigHint localOnly() {
-        return MessageConfigHint.builder()
-                .routeScope(RouteScope.LOCAL_ONLY)
-                .build();
-    }
-
-    /**
-     * 创建仅远程路由的提示
-     *
-     * @return 远程路由提示
-     */
-    public static MessageConfigHint remoteOnly() {
-        return MessageConfigHint.builder()
-                .routeScope(RouteScope.REMOTE_ONLY)
-                .build();
-    }
+    private Map<String, Object> properties;
 
     /**
      * 创建延迟消息提示
@@ -138,7 +115,7 @@ public class MessageConfigHint {
      */
     public static MessageConfigHint delayed(Duration delay) {
         return MessageConfigHint.builder()
-                .messageType(MessageType.DELAYED)
+                .eventType(EventType.DELAYED)
                 .delayTime(delay)
                 .build();
     }
@@ -151,7 +128,7 @@ public class MessageConfigHint {
      */
     public static MessageConfigHint scheduled(LocalDateTime deliverTime) {
         return MessageConfigHint.builder()
-                .messageType(MessageType.SCHEDULED)
+                .eventType(EventType.SCHEDULED)
                 .deliverTime(deliverTime)
                 .build();
     }
@@ -164,7 +141,7 @@ public class MessageConfigHint {
      */
     public static MessageConfigHint ordered(String sequenceKey) {
         return MessageConfigHint.builder()
-                .messageType(MessageType.ORDERED)
+                .eventType(EventType.ORDERED)
                 .sequenceKey(sequenceKey)
                 .build();
     }
@@ -177,30 +154,6 @@ public class MessageConfigHint {
     public static MessageConfigHint transactional() {
         return MessageConfigHint.builder()
                 .reliabilityLevel(ReliabilityLevel.TRANSACTIONAL)
-                .build();
-    }
-
-    /**
-     * 创建高性能消息提示
-     *
-     * @return 高性能消息提示
-     */
-    public static MessageConfigHint highPerformance() {
-        return MessageConfigHint.builder()
-                .reliabilityLevel(ReliabilityLevel.FIRE_AND_FORGET)
-                .performanceSensitive(true)
-                .build();
-    }
-
-    /**
-     * 创建高可靠性消息提示
-     *
-     * @return 高可靠性消息提示
-     */
-    public static MessageConfigHint highReliability() {
-        return MessageConfigHint.builder()
-                .reliabilityLevel(ReliabilityLevel.RELIABLE)
-                .performanceSensitive(false)
                 .build();
     }
 } 

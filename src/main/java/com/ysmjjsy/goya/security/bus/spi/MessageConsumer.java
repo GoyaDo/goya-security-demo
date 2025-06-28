@@ -18,7 +18,7 @@ public interface MessageConsumer {
      * @param message 传输消息
      * @return 消费结果
      */
-    ConsumeResult consume(TransportMessage message);
+    ConsumeResult consume(TransportEvent message);
 
     /**
      * 批量消费消息
@@ -26,8 +26,8 @@ public interface MessageConsumer {
      * @param messages 消息列表
      * @return 消费结果
      */
-    default ConsumeResult consumeBatch(java.util.List<TransportMessage> messages) {
-        for (TransportMessage message : messages) {
+    default ConsumeResult consumeBatch(java.util.List<TransportEvent> messages) {
+        for (TransportEvent message : messages) {
             ConsumeResult result = consume(message);
             if (result != ConsumeResult.SUCCESS) {
                 return result;

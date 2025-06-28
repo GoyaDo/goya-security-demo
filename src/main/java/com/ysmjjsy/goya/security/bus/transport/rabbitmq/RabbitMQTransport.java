@@ -1,16 +1,16 @@
 package com.ysmjjsy.goya.security.bus.transport.rabbitmq;
 
 import com.rabbitmq.client.Channel;
-import com.ysmjjsy.goya.security.bus.encry.MessageEncryptor;
-import com.ysmjjsy.goya.security.bus.enums.BusinessPriority;
-import com.ysmjjsy.goya.security.bus.enums.MessageCapability;
-import com.ysmjjsy.goya.security.bus.enums.MessageModel;
+import com.ysmjjsy.goya.security.bus.enums.EventCapability;
+import com.ysmjjsy.goya.security.bus.enums.EventModel;
+import com.ysmjjsy.goya.security.bus.enums.EventStatus;
 import com.ysmjjsy.goya.security.bus.enums.TransportType;
 import com.ysmjjsy.goya.security.bus.route.RoutingContext;
 import com.ysmjjsy.goya.security.bus.route.RoutingStrategy;
+import com.ysmjjsy.goya.security.bus.serializer.MessageSerializer;
 import com.ysmjjsy.goya.security.bus.spi.MessageConsumer;
 import com.ysmjjsy.goya.security.bus.spi.SubscriptionConfig;
-import com.ysmjjsy.goya.security.bus.spi.TransportMessage;
+import com.ysmjjsy.goya.security.bus.spi.TransportEvent;
 import com.ysmjjsy.goya.security.bus.spi.TransportResult;
 import com.ysmjjsy.goya.security.bus.transport.MessageTransport;
 import lombok.extern.slf4j.Slf4j;
@@ -45,14 +45,17 @@ public class RabbitMQTransport implements MessageTransport {
     private final Map<String, SimpleMessageListenerContainer> subscriptions = new ConcurrentHashMap<>();
     private volatile boolean healthy = true;
     private final RoutingStrategy routingStrategy;
+    private final MessageSerializer messageSerializer;
 
     public RabbitMQTransport(RabbitTemplate rabbitTemplate,
                              ConnectionFactory connectionFactory,
-                             RoutingStrategy routingStrategy) {
+                             RoutingStrategy routingStrategy,
+                             MessageSerializer messageSerializer) {
         this.rabbitTemplate = rabbitTemplate;
         this.connectionFactory = connectionFactory;
         this.rabbitAdmin = new RabbitAdmin(connectionFactory);
         this.routingStrategy = routingStrategy;
+        this.messageSerializer = messageSerializer;
         // 初始化Exchange
         initialize();
         checkHealth();
@@ -67,30 +70,29 @@ public class RabbitMQTransport implements MessageTransport {
     }
 
     @Override
-    public TransportResult send(TransportMessage message) {
+    public TransportResult send(TransportEvent transportEvent) {
         try {
             // 解析消息模型
-            MessageModel messageModel = message.getRoutingContext().getMessageModel();
+            EventModel eventModel = transportEvent.getEventModel();
 
             // 处理延迟消息
-            if (message.getDeliverTime() != null) {
-                return sendDelayedMessage(message);
+            if (transportEvent.getDelayTime() != null) {
+                return sendDelayedMessage(transportEvent);
             }
 
             // 根据消息模型选择发送策略
-            switch (messageModel) {
-                case QUEUE:
-                    return sendToQueue(message);
+            switch (eventModel) {
                 case TOPIC:
-                    return sendToTopic(message);
+                    return sendToTopic(transportEvent);
                 case BROADCAST:
-                    return sendToBroadcast(message);
+                    return sendToBroadcast(transportEvent);
+                case QUEUE:
                 default:
-                    return sendToQueue(message);
+                    return sendToQueue(transportEvent);
             }
 
         } catch (Exception e) {
-            log.error("Failed to send message via RabbitMQ: {}", message.getMessageId(), e);
+            log.error("Failed to send message via RabbitMQ: {}", transportEvent.getEventId(), e);
             return TransportResult.failure(e.getMessage(), e);
         }
     }
@@ -98,7 +100,7 @@ public class RabbitMQTransport implements MessageTransport {
     /**
      * 发送到队列（Direct Exchange）
      */
-    private TransportResult sendToQueue(TransportMessage message) {
+    private TransportResult sendToQueue(TransportEvent message) {
         try {
             // 获取路由上下文
             RoutingContext routingContext = message.getRoutingContext();
@@ -110,11 +112,12 @@ public class RabbitMQTransport implements MessageTransport {
             log.debug("Using routing context: exchange={}, routingKey={}, queue={}",
                     exchangeName, routingKey, queueName);
 
+            byte[] serialize = messageSerializer.serialize(message);
             // 发送消息到Direct Exchange
             rabbitTemplate.convertAndSend(
                     exchangeName,
                     routingKey,
-                    message.getBody(),
+                    serialize,
                     msg -> {
                         setMessageProperties(msg, message);
                         return msg;
@@ -122,11 +125,11 @@ public class RabbitMQTransport implements MessageTransport {
             );
 
             log.debug("Message sent to queue: exchange={}, routingKey={}, queue={}, messageId={}",
-                    exchangeName, routingKey, queueName, message.getMessageId());
-            return TransportResult.success(message.getMessageId());
+                    exchangeName, routingKey, queueName, message.getEventId());
+            return TransportResult.success(message.getEventId());
 
         } catch (Exception e) {
-            log.error("Failed to send message to queue: {}", message.getMessageId(), e);
+            log.error("Failed to send message to queue: {}", message.getEventId(), e);
             return TransportResult.failure(e.getMessage(), e);
         }
     }
@@ -134,7 +137,7 @@ public class RabbitMQTransport implements MessageTransport {
     /**
      * 发送到主题（Topic Exchange）
      */
-    private TransportResult sendToTopic(TransportMessage message) {
+    private TransportResult sendToTopic(TransportEvent message) {
         try {
             // 获取路由上下文
             RoutingContext routingContext = message.getRoutingContext();
@@ -145,12 +148,13 @@ public class RabbitMQTransport implements MessageTransport {
             log.debug("Using routing context for topic: exchange={}, routingKey={}",
                     exchangeName, routingKey);
 
+            byte[] serialize = messageSerializer.serialize(message);
 
             // 发送消息到Topic Exchange
             rabbitTemplate.convertAndSend(
                     exchangeName,
                     routingKey,
-                    message.getBody(),
+                    serialize,
                     msg -> {
                         setMessageProperties(msg, message);
                         return msg;
@@ -158,11 +162,11 @@ public class RabbitMQTransport implements MessageTransport {
             );
 
             log.debug("Message sent to topic: exchange={}, routingKey={}, messageId={}",
-                    exchangeName, routingKey, message.getMessageId());
-            return TransportResult.success(message.getMessageId());
+                    exchangeName, routingKey, message.getEventId());
+            return TransportResult.success(message.getEventId());
 
         } catch (Exception e) {
-            log.error("Failed to send message to topic: {}", message.getMessageId(), e);
+            log.error("Failed to send message to topic: {}", message.getEventId(), e);
             return TransportResult.failure(e.getMessage(), e);
         }
     }
@@ -170,7 +174,7 @@ public class RabbitMQTransport implements MessageTransport {
     /**
      * 发送到广播（Fanout Exchange）
      */
-    private TransportResult sendToBroadcast(TransportMessage message) {
+    private TransportResult sendToBroadcast(TransportEvent message) {
         try {
             // 获取路由上下文
             RoutingContext routingContext = message.getRoutingContext();
@@ -181,11 +185,12 @@ public class RabbitMQTransport implements MessageTransport {
 
             log.debug("Using routing context for broadcast: exchange={}", exchangeName);
 
+            byte[] serialize = messageSerializer.serialize(message);
             // 发送消息到Fanout Exchange（无需路由键）
             rabbitTemplate.convertAndSend(
                     exchangeName,
                     routingKey,
-                    message.getBody(),
+                    serialize,
                     msg -> {
                         setMessageProperties(msg, message);
                         return msg;
@@ -193,11 +198,11 @@ public class RabbitMQTransport implements MessageTransport {
             );
 
             log.debug("Message sent to broadcast: exchange={}, messageId={}",
-                    exchangeName, message.getMessageId());
-            return TransportResult.success(message.getMessageId());
+                    exchangeName, message.getEventId());
+            return TransportResult.success(message.getEventId());
 
         } catch (Exception e) {
-            log.error("Failed to send message to broadcast: {}", message.getMessageId(), e);
+            log.error("Failed to send message to broadcast: {}", message.getEventId(), e);
             return TransportResult.failure(e.getMessage(), e);
         }
     }
@@ -206,15 +211,13 @@ public class RabbitMQTransport implements MessageTransport {
      * 发送延迟消息
      * TTL+私信队列
      */
-    private TransportResult sendDelayedMessage(TransportMessage message) {
+    private TransportResult sendDelayedMessage(TransportEvent message) {
         try {
             // 计算延迟时间
-            long now = System.currentTimeMillis();
-            long deliverTimeMs = message.getDeliverTime().atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
-            long delayMs = deliverTimeMs - now;
+            long delayMs = message.getDelayTime().toMillis();
 
             if (delayMs <= 0) {
-                log.warn("Deliver time is in the past, sending immediately: {}", message.getMessageId());
+                log.warn("Deliver time is in the past, sending immediately: {}", message.getEventId());
                 return send(message);
             }
 
@@ -223,15 +226,16 @@ public class RabbitMQTransport implements MessageTransport {
             String delayRoutingKey = "delay." + delayMs + "." + originalRoutingKey;
 
             // 创建延迟队列并绑定
-            final String delayExchangeName = message.getRoutingContext().getBusinessDomain() + "-" + "delay";
+            final String delayExchangeName = message.getRoutingContext().getBusinessDomain() + "-delay";
 
             String delayQueueName = createDelayQueue(delayExchangeName, delayMs, delayRoutingKey, message);
 
+            byte[] serialize = messageSerializer.serialize(message);
             // 发送到死信队列
             rabbitTemplate.convertAndSend(
                     delayExchangeName,
                     delayRoutingKey,
-                    message.getBody(),
+                    serialize,
                     msg -> {
                         setMessageProperties(msg, message);
                         // 设置消息TTL
@@ -241,11 +245,11 @@ public class RabbitMQTransport implements MessageTransport {
             );
 
             log.debug("Delayed message sent: delay={}ms, delayQueue={}, messageId={}",
-                    delayMs, delayQueueName, message.getMessageId());
-            return TransportResult.success(message.getMessageId());
+                    delayMs, delayQueueName, message.getEventId());
+            return TransportResult.success(message.getEventId());
 
         } catch (Exception e) {
-            log.error("Failed to send delayed message: {}", message.getMessageId(), e);
+            log.error("Failed to send delayed message: {}", message.getEventId(), e);
             return TransportResult.failure(e.getMessage(), e);
         }
     }
@@ -254,7 +258,7 @@ public class RabbitMQTransport implements MessageTransport {
     public void subscribe(SubscriptionConfig config, MessageConsumer consumer) {
         try {
             // 解析消息模型
-            MessageModel messageModel = config.getMessageModel();
+            EventModel messageModel = config.getMessageModel();
 
             // 根据消息模型创建订阅
             switch (messageModel) {
@@ -297,7 +301,7 @@ public class RabbitMQTransport implements MessageTransport {
             String subscriptionId = exchangeName + "_" + queueName;
 
             // 确保队列和绑定存在
-            ensureQueueBinding(exchangeName, queueName, routingKey, MessageModel.QUEUE);
+            ensureQueueBinding(exchangeName, queueName, routingKey, EventModel.QUEUE);
 
             // 创建监听器容器
             createListenerContainer(subscriptionId, queueName, config, consumer);
@@ -380,7 +384,7 @@ public class RabbitMQTransport implements MessageTransport {
     /**
      * 确保队列绑定（Direct Exchange）
      */
-    private void ensureQueueBinding(String exchangeName, String queueName, String routingKey, MessageModel messageModel) {
+    private void ensureQueueBinding(String exchangeName, String queueName, String routingKey, EventModel messageModel) {
         try {
 
             // 声明Exchange
@@ -415,17 +419,6 @@ public class RabbitMQTransport implements MessageTransport {
             log.debug("ensureTopicBinding called with: exchange={}, queue={}, routingKey={}",
                     exchangeName, queueName, routingKey);
 
-            // 检查参数是否为null
-            if (exchangeName == null || exchangeName.isEmpty()) {
-                throw new IllegalArgumentException("ExchangeName cannot be null or empty for topic binding");
-            }
-            if (queueName == null || queueName.isEmpty()) {
-                throw new IllegalArgumentException("QueueName cannot be null or empty for topic binding");
-            }
-            if (routingKey == null) {
-                throw new IllegalArgumentException("RoutingKey cannot be null for topic binding");
-            }
-
             // 声明Exchange
             TopicExchange exchange = new TopicExchange(exchangeName, true, false);
             rabbitAdmin.declareExchange(exchange);
@@ -458,14 +451,6 @@ public class RabbitMQTransport implements MessageTransport {
             log.debug("ensureBroadcastBinding called with: exchange={}, queue={}",
                     exchangeName, queueName);
 
-            // 检查参数是否为null
-            if (exchangeName == null || exchangeName.isEmpty()) {
-                throw new IllegalArgumentException("ExchangeName cannot be null or empty for broadcast binding");
-            }
-            if (queueName == null || queueName.isEmpty()) {
-                throw new IllegalArgumentException("QueueName cannot be null or empty for broadcast binding");
-            }
-
             // 声明Exchange
             FanoutExchange exchange = new FanoutExchange(exchangeName, true, false);
             rabbitAdmin.declareExchange(exchange);
@@ -492,19 +477,19 @@ public class RabbitMQTransport implements MessageTransport {
     /**
      * 创建延迟队列
      */
-    private String createDelayQueue(String delayExchangeName, long delayMs, String delayRoutingKey, TransportMessage message) {
+    private String createDelayQueue(String delayExchangeName, long delayMs, String delayRoutingKey, TransportEvent message) {
         try {
-            String targetQueueName = message.getRoutingContext().getConsumerGroup();
-            String targetExchange = message.getRoutingContext().getBusinessDomain();
-            String targetRoutingKey = message.getRoutingContext().getRoutingSelector();
-
+            final String delayQueueName = message.getRoutingContext().getConsumerGroup() + "-delay";
             // 声明延迟队列（带TTL和死信设置）
-            Queue delayQueue = QueueBuilder.durable(targetQueueName)
-                    .withArgument("x-message-ttl", delayMs)
-                    .withArgument("x-dead-letter-exchange", targetExchange)
-                    .withArgument("x-dead-letter-routing-key", targetRoutingKey)
+            Queue delayQueue = QueueBuilder.durable(delayQueueName)
+                    .withArgument("x-dead-letter-exchange", message.getRoutingContext().getBusinessDomain())
+                    .withArgument("x-dead-letter-routing-key", message.getRoutingContext().getRoutingSelector())
                     .build();
             rabbitAdmin.declareQueue(delayQueue);
+
+            // 声明Exchange
+            DirectExchange exchange = new DirectExchange(delayExchangeName, true, false);
+            rabbitAdmin.declareExchange(exchange);
 
             // 绑定延迟队列到延迟Exchange
             Binding delayBinding = BindingBuilder.bind(delayQueue)
@@ -513,9 +498,9 @@ public class RabbitMQTransport implements MessageTransport {
             rabbitAdmin.declareBinding(delayBinding);
 
             log.debug("Created delay queue: {} -> {} (delay: {}ms)",
-                    targetQueueName, targetExchange, delayMs);
+                    delayQueueName, delayExchangeName, delayMs);
 
-            return targetQueueName;
+            return delayQueueName;
 
         } catch (Exception e) {
             log.error("Failed to create delay queue for routing key: {}", message.getRoutingContext().getRoutingSelector(), e);
@@ -589,14 +574,14 @@ public class RabbitMQTransport implements MessageTransport {
     }
 
     @Override
-    public Set<MessageCapability> getSupportedCapabilities() {
+    public Set<EventCapability> getSupportedCapabilities() {
         return Set.of(
-                MessageCapability.DELAYED_MESSAGE,
-                MessageCapability.TRANSACTIONAL_MESSAGE,
-                MessageCapability.BATCH_MESSAGE,
-                MessageCapability.PERSISTENT_MESSAGE,
-                MessageCapability.DEAD_LETTER_QUEUE,
-                MessageCapability.CLUSTER_SUPPORT
+                EventCapability.DELAYED_MESSAGE,
+                EventCapability.TRANSACTIONAL_MESSAGE,
+                EventCapability.BATCH_MESSAGE,
+                EventCapability.PERSISTENT_MESSAGE,
+                EventCapability.DEAD_LETTER_QUEUE,
+                EventCapability.CLUSTER_SUPPORT
 
         );
     }
@@ -604,26 +589,15 @@ public class RabbitMQTransport implements MessageTransport {
     /**
      * 设置消息属性
      */
-    private void setMessageProperties(Message msg, TransportMessage message) {
-        // 设置消息头
-        if (message.getHeaders() != null) {
-            message.getHeaders().forEach((key, value) ->
-                    msg.getMessageProperties().getHeaders().put(key, value));
-        }
-
+    private void setMessageProperties(Message msg, TransportEvent message) {
         // 设置消息属性
-        msg.getMessageProperties().setMessageId(message.getMessageId());
-        if (message.getPriority() != null) {
+        msg.getMessageProperties().setMessageId(message.getEventId());
+        if (message.getPriority() != 0) {
             msg.getMessageProperties().setPriority(message.getPriority());
         }
 
         if (message.getTtl() != null) {
             msg.getMessageProperties().setExpiration(String.valueOf(message.getTtl()));
-        }
-
-        // 设置业务优先级
-        if (message.getBusinessPriority() != null) {
-            msg.getMessageProperties().getHeaders().put("businessPriority", message.getBusinessPriority().name());
         }
     }
 
@@ -650,10 +624,11 @@ public class RabbitMQTransport implements MessageTransport {
                 log.debug("Received message from RabbitMQ: {}", messageId);
 
                 // 构建TransportMessage
-                TransportMessage transportMessage = buildTransportMessage(message);
+                TransportEvent transportEvent = buildTransportMessage(message);
+                transportEvent.setEventStatus(EventStatus.SUCCESS);
 
                 // 调用消费者处理消息
-                consumer.consume(transportMessage);
+                consumer.consume(transportEvent);
 
                 // 手动确认消息
                 channel.basicAck(deliveryTag, false);
@@ -670,48 +645,8 @@ public class RabbitMQTransport implements MessageTransport {
         /**
          * 构建传输消息对象
          */
-        private TransportMessage buildTransportMessage(Message message) {
-            MessageProperties props = message.getMessageProperties();
-            byte[] body = message.getBody();
-
-            // 处理解密
-            boolean encrypted = Boolean.TRUE.equals(props.getHeaders().get("encrypted"));
-            if (encrypted) {
-                String encryptionType = (String) props.getHeaders().get("encryptionType");
-                if ("aes128".equals(encryptionType)) {
-                    try {
-                        MessageEncryptor encryptor = new MessageEncryptor();
-                        body = encryptor.decrypt(body, MessageEncryptor.EncryptionType.AES_128);
-                        log.debug("Message decrypted successfully");
-                    } catch (Exception e) {
-                        log.error("Failed to decrypt message: {}", props.getMessageId(), e);
-                    }
-                }
-            }
-
-            // 解析业务优先级
-            BusinessPriority businessPriority = null;
-            String priorityStr = (String) props.getHeaders().get("businessPriority");
-            if (priorityStr != null) {
-                try {
-                    businessPriority = BusinessPriority.valueOf(priorityStr);
-                } catch (IllegalArgumentException e) {
-                    log.warn("Invalid business priority: {}", priorityStr);
-                }
-            }
-
-            return TransportMessage.builder()
-                    .messageId(props.getMessageId())
-                    .body(body)
-                    .originalBodySize((Integer) props.getHeaders().get("originalSize"))
-                    .headers(props.getHeaders())
-                    .messageType(props.getType())
-                    .priority(props.getPriority() != null ? props.getPriority() : 0)
-                    .businessPriority(businessPriority)
-                    .enableEncryption(encrypted)
-                    .performanceSensitive(Boolean.TRUE.equals(props.getHeaders().get("performanceSensitive")))
-                    .ttl(props.getExpiration() != null ? Long.parseLong(props.getExpiration()) : null)
-                    .build();
+        private TransportEvent buildTransportMessage(Message message) {
+            return messageSerializer.deserialize(message.getBody(), TransportEvent.class);
         }
 
         /**

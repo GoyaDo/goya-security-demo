@@ -14,7 +14,7 @@ import com.ysmjjsy.goya.security.bus.route.RoutingStrategy;
 import com.ysmjjsy.goya.security.bus.route.RoutingStrategyManager;
 import com.ysmjjsy.goya.security.bus.serializer.JsonMessageSerializer;
 import com.ysmjjsy.goya.security.bus.serializer.MessageSerializer;
-import com.ysmjjsy.goya.security.bus.store.MessageStore;
+import com.ysmjjsy.goya.security.bus.store.EventStore;
 import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMQRoutingStrategy;
 import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMQTransport;
 import com.ysmjjsy.goya.security.bus.transport.redis.RedisMessageDeduplicator;
@@ -33,6 +33,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.retry.backoff.FixedBackOffPolicy;
+import org.springframework.retry.policy.SimpleRetryPolicy;
+import org.springframework.retry.support.RetryTemplate;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.Map;
@@ -64,6 +67,23 @@ public class BusConfiguration {
                                                                          MessageConfigDecision messageConfigDecision
     ) {
         return new EventListenerBeanPostProcessor(iEventBus, properties, localEventBus, messageConfigDecision);
+    }
+
+    @Bean
+    public RetryTemplate retryTemplate() {
+        RetryTemplate retryTemplate = new RetryTemplate();
+
+        // 1. 重试策略（最多重试3次）
+        SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy();
+        retryPolicy.setMaxAttempts(3); // 可被动态替换，如方法中再次设置
+        retryTemplate.setRetryPolicy(retryPolicy);
+
+        // 2. 回退策略（每次重试间隔1000ms）
+        FixedBackOffPolicy backOffPolicy = new FixedBackOffPolicy();
+        backOffPolicy.setBackOffPeriod(1000L); // 1 秒
+        retryTemplate.setBackOffPolicy(backOffPolicy);
+
+        return retryTemplate;
     }
 
     /**
@@ -111,15 +131,15 @@ public class BusConfiguration {
                                TaskExecutor busTaskExecutor,
                                LocalEventBus localEventBus,
                                MessageSerializer messageSerializer,
-                               MessageStore messageStore,
-                               MessageDeduplicator messageDeduplicator) {
+                               EventStore messageStore,
+                               RetryTemplate retryTemplate) {
         return new DefaultEventBus(
                 messageConfigDecision,
                 busTaskExecutor,
                 localEventBus,
                 messageSerializer,
                 messageStore,
-                messageDeduplicator
+                retryTemplate
         );
     }
 
@@ -165,9 +185,10 @@ public class BusConfiguration {
         @Bean
         public RabbitMQTransport rabbitMQTransport(RabbitTemplate rabbitTemplate,
                                                    ConnectionFactory connectionFactory,
-                                                   @Qualifier("rabbitMQRoutingStrategy") RoutingStrategy routingStrategy
+                                                   @Qualifier("rabbitMQRoutingStrategy") RoutingStrategy routingStrategy,
+                                                   MessageSerializer messageSerializer
         ) {
-            return new RabbitMQTransport(rabbitTemplate, connectionFactory, routingStrategy);
+            return new RabbitMQTransport(rabbitTemplate, connectionFactory, routingStrategy, messageSerializer);
         }
 
         @Bean
@@ -188,7 +209,7 @@ public class BusConfiguration {
 
         @Bean
         @ConditionalOnMissingBean
-        public MessageStore messageStore() {
+        public EventStore messageStore() {
             return new RedisMessageStore();
         }
 

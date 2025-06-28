@@ -1,9 +1,6 @@
-package com.ysmjjsy.goya.security.bus.decision;
+package com.ysmjjsy.goya.security.bus.spi;
 
-import com.ysmjjsy.goya.security.bus.enums.EventModel;
-import com.ysmjjsy.goya.security.bus.enums.EventType;
-import com.ysmjjsy.goya.security.bus.enums.ReliabilityLevel;
-import com.ysmjjsy.goya.security.bus.enums.TransportType;
+import com.ysmjjsy.goya.security.bus.enums.*;
 import com.ysmjjsy.goya.security.bus.route.RoutingContext;
 import lombok.Builder;
 import lombok.Data;
@@ -13,14 +10,58 @@ import java.time.LocalDateTime;
 import java.util.Map;
 
 /**
- * <p>决策结果</p>
+ * 传输层消息封装
+ * <p>
+ * 用于在传输层之间传递消息数据
+ * 包含消息的所有必要信息和传输配置
  *
  * @author goya
- * @since 2025/6/26 22:08
+ * @since 2025/6/24
  */
 @Data
 @Builder
-public class DecisionResult {
+public class TransportEvent {
+
+    /**
+     * 消息ID
+     */
+    private String eventId;
+
+    /**
+     * 消息原生key
+     */
+    private String originEventKey;
+
+    /**
+     * 消息类型
+     */
+    private String eventClass;
+
+    /**
+     * 创建时间
+     */
+    private LocalDateTime createTime;
+
+    /**
+     * 消息状态
+     */
+    private EventStatus eventStatus;
+
+    /**
+     * 消息优先级
+     */
+    private int priority;
+
+    /**
+     * 消息体（已序列化）
+     */
+    private byte[] body;
+
+    /**
+     * 路由上下文
+     */
+    private RoutingContext routingContext;
+
 
     /**
      * 消息模型
@@ -41,11 +82,6 @@ public class DecisionResult {
      * 传输方式
      */
     private TransportType transportType;
-
-    /**
-     * 路由上下文（包含详细的路由信息）
-     */
-    private RoutingContext routingContext;
 
     /**
      * 延迟时间
@@ -107,4 +143,4 @@ public class DecisionResult {
      * 用于传递额外信息
      */
     private Map<String, Object> properties;
-}
+} 

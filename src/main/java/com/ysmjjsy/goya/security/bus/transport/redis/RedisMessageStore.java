@@ -1,8 +1,8 @@
 package com.ysmjjsy.goya.security.bus.transport.redis;
 
-import com.ysmjjsy.goya.security.bus.enums.MessageStatus;
-import com.ysmjjsy.goya.security.bus.spi.MessageRecord;
-import com.ysmjjsy.goya.security.bus.store.MessageStore;
+import com.ysmjjsy.goya.security.bus.enums.EventStatus;
+import com.ysmjjsy.goya.security.bus.spi.EventRecord;
+import com.ysmjjsy.goya.security.bus.store.EventStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -17,29 +17,29 @@ import java.util.Map;
  */
 @Slf4j
 @RequiredArgsConstructor
-public class RedisMessageStore implements MessageStore {
+public class RedisMessageStore implements EventStore {
     @Override
-    public void save(MessageRecord record) {
+    public void save(EventRecord record) {
 
     }
 
     @Override
-    public void updateStatus(String messageId, MessageStatus status, String errorMessage) {
+    public void updateStatus(String eventId, EventStatus status, String errorMessage) {
 
     }
 
     @Override
-    public MessageRecord findById(String messageId) {
+    public EventRecord findById(String eventId) {
         return null;
     }
 
     @Override
-    public List<MessageRecord> findReadyToSend(int limit) {
+    public List<EventRecord> findReadyToSend(int limit) {
         return List.of();
     }
 
     @Override
-    public List<MessageRecord> findRetryable(int limit) {
+    public List<EventRecord> findRetryable(int limit) {
         return List.of();
     }
 
@@ -54,7 +54,7 @@ public class RedisMessageStore implements MessageStore {
     }
 
     @Override
-    public Map<MessageStatus, Long> countByStatus() {
+    public Map<EventStatus, Long> countByStatus() {
         return Map.of();
     }
 }

@@ -37,7 +37,7 @@ public class EventTestController {
             // 创建用户数据
             UserCreatedEvent userData = UserCreatedEvent.builder()
                     .eventId(IdUtil.getSnowflakeNextIdStr())
-                    .eventType("user.created")
+                    .eventKey("user.created")
                     .userId(UUID.randomUUID().toString())
                     .username("username")
                     .email("email")
@@ -48,7 +48,7 @@ public class EventTestController {
             log.info("Publishing user created event: {}", userData.getEventId());
             
             // 发布事件
-            PublishResult result = eventBus.publishDelayed(userData,Duration.ofSeconds(10));
+            PublishResult result = eventBus.publishDelayed(userData,Duration.ofSeconds(3));
 
             Map<String, Object> response = new HashMap<>();
             response.put("eventId", userData.getEventId());

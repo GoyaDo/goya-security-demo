@@ -1,6 +1,5 @@
 package com.ysmjjsy.goya.security.bus.configuration.properties;
 
-import com.ysmjjsy.goya.security.bus.enums.RoutingStrategy;
 import com.ysmjjsy.goya.security.bus.enums.TransportType;
 import lombok.Data;
 import lombok.Getter;
@@ -24,7 +23,7 @@ public class BusProperties {
 
     /**
      * 默认业务域
-     * 完整为applicationName + "." + busPrefix+ ".eventType"
+     * 完整为applicationName + "." + busPrefix+ ".eventKey"
      */
     private String busPrefix = "unified";
 
@@ -32,11 +31,6 @@ public class BusProperties {
      * 默认传输层类型
      */
     private TransportType defaultTransport = TransportType.RABBITMQ;
-
-    /**
-     * 路由策略
-     */
-    private RoutingStrategy routingStrategy = RoutingStrategy.REMOTE_ONLY;
 
     /**
      * 线程池配置
@@ -86,7 +80,7 @@ public class BusProperties {
 
     @Setter
     @Getter
-    public static class Redis{
+    public static class Redis {
         /**
          * 是否启用Redis传输
          */
@@ -103,5 +97,25 @@ public class BusProperties {
          * 是否启用RabbitMQ传输
          */
         private boolean enabled = false;
+
+        /**
+         * 队列最大优先级
+         */
+        private int maxPriority;
+
+        /**
+         * 是否持久化(队列)
+         */
+        boolean queueDurable;
+
+        /**
+         * 是否持久化(交换机)
+         */
+        boolean exchangeDurable;
+
+        /**
+         * 若没有队列绑定时是否自动删除
+         */
+        boolean exchangeAutoDelete;
     }
 } 

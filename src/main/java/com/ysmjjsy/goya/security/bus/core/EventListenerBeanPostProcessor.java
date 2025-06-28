@@ -7,13 +7,13 @@ import com.ysmjjsy.goya.security.bus.api.IEventListener;
 import com.ysmjjsy.goya.security.bus.configuration.properties.BusProperties;
 import com.ysmjjsy.goya.security.bus.decision.MessageConfigDecision;
 import com.ysmjjsy.goya.security.bus.enums.ConsumeResult;
-import com.ysmjjsy.goya.security.bus.enums.RoutingStrategy;
+import com.ysmjjsy.goya.security.bus.enums.EventStatus;
 import com.ysmjjsy.goya.security.bus.enums.TransportType;
 import com.ysmjjsy.goya.security.bus.serializer.JsonMessageSerializer;
 import com.ysmjjsy.goya.security.bus.serializer.MessageSerializer;
 import com.ysmjjsy.goya.security.bus.spi.MessageConsumer;
 import com.ysmjjsy.goya.security.bus.spi.SubscriptionConfig;
-import com.ysmjjsy.goya.security.bus.spi.TransportMessage;
+import com.ysmjjsy.goya.security.bus.spi.TransportEvent;
 import com.ysmjjsy.goya.security.bus.transport.MessageTransport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +23,7 @@ import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.util.StringUtils;
 
 import java.lang.reflect.Method;
+import java.time.LocalDateTime;
 import java.util.Map;
 
 /**
@@ -79,19 +80,19 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
             IEventListener<? extends IEvent> listener = (IEventListener<? extends IEvent>) bean;
 
             // 解析事件类型
-            String eventType = resolveEventTypeFromClass(bean.getClass(), annotation);
-            if (!StringUtils.hasText(eventType)) {
+            String eventKey = resolveEventTypeFromClass(bean.getClass(), annotation);
+            if (!StringUtils.hasText(eventKey)) {
                 log.warn("Could not resolve event type for listener: {}", beanName);
                 return;
             }
 
             // 注册到本地事件总线
-            localEventBus.registerListener(eventType, listener);
+            localEventBus.registerListener(eventKey, listener);
 
             // 注册到远程传输层（如果需要）
-            registerToRemoteTransport(annotation, eventType, listener);
+            registerToRemoteTransport(annotation, eventKey, listener);
 
-            log.info("Registered class-level listener: {} for event type: {}", beanName, eventType);
+            log.info("Registered class-level listener: {} for event type: {}", beanName, eventKey);
 
         } catch (Exception e) {
             log.error("Failed to register class-level listener: {}", beanName, e);
@@ -115,8 +116,8 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
             }
 
             // 解析事件类型
-            String eventType = resolveEventTypeFromMethod(method, annotation);
-            if (!StringUtils.hasText(eventType)) {
+            String eventKey = resolveEventTypeFromMethod(method, annotation);
+            if (!StringUtils.hasText(eventKey)) {
                 log.warn("Could not resolve event type for method listener: {}.{}", beanName, method.getName());
                 return;
             }
@@ -125,12 +126,12 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
             MethodListenerWrapper wrapper = new MethodListenerWrapper(bean, method);
 
             // 注册到本地事件总线
-            localEventBus.registerListener(eventType, wrapper);
+            localEventBus.registerListener(eventKey, wrapper);
 
             // 注册到远程传输层（如果需要）
-            registerToRemoteTransport(annotation, eventType, wrapper);
+            registerToRemoteTransport(annotation, eventKey, wrapper);
 
-            log.info("Registered method-level listener: {}.{} for event type: {}", beanName, method.getName(), eventType);
+            log.info("Registered method-level listener: {}.{} for event type: {}", beanName, method.getName(), eventKey);
 
         } catch (Exception e) {
             log.error("Failed to register method-level listener: {}.{}", beanName, method.getName(), e);
@@ -141,7 +142,7 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
      * 从类的泛型参数解析事件类型
      */
     private String resolveEventTypeFromClass(Class<?> listenerClass, IListener annotation) {
-        return annotation.eventType();
+        return annotation.eventKey();
     }
 
     /**
@@ -149,8 +150,8 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
      */
     private String resolveEventTypeFromMethod(Method method, IListener annotation) {
         // 优先使用注解中指定的事件类型
-        if (StringUtils.hasText(annotation.eventType())) {
-            return annotation.eventType();
+        if (StringUtils.hasText(annotation.eventKey())) {
+            return annotation.eventKey();
         }
 
         // 从方法参数推断
@@ -209,20 +210,15 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
     /**
      * 注册到远程传输层
      */
-    private void registerToRemoteTransport(IListener annotation, String eventType,
+    private void registerToRemoteTransport(IListener annotation, String eventKey,
                                            IEventListener<? extends IEvent> listener) {
         try {
-            // 检查是否需要远程订阅
-            if (!needsRemoteSubscription(annotation)) {
-                log.debug("No remote subscription needed for event type: {}", eventType);
-                return;
-            }
 
             // 构建订阅配置
-            SubscriptionConfig config = buildSubscriptionConfig(annotation, eventType);
+            SubscriptionConfig config = buildSubscriptionConfig(annotation, eventKey);
 
             // 创建消息消费者包装器
-            MessageConsumer consumer = new MessageConsumerWrapper(listener, eventType);
+            MessageConsumer consumer = new MessageConsumerWrapper(listener, eventKey);
 
             // 获取对应的传输层
             MessageTransport transport = getTransportForSubscription(annotation);
@@ -230,53 +226,31 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
                 // 订阅到远程传输层
                 transport.subscribe(config, consumer);
                 log.info("Successfully registered remote subscription for event type: {} via {} with config: {}",
-                        eventType, transport.getTransportType(), config);
+                        eventKey, transport.getTransportType(), config);
             } else {
                 if (transport == null) {
                     log.warn("No suitable transport found for remote subscription: {}, available transports: {}",
-                            eventType, messageConfigDecision.getRegisteredTransports().keySet());
+                            eventKey, messageConfigDecision.getRegisteredTransports().keySet());
                 } else {
                     log.warn("Transport not healthy for remote subscription: {}, transport: {}",
-                            eventType, transport.getTransportType());
+                            eventKey, transport.getTransportType());
                 }
             }
 
         } catch (Exception e) {
-            log.error("Failed to register remote transport subscription for event type: {}", eventType, e);
+            log.error("Failed to register remote transport subscription for event type: {}", eventKey, e);
         }
-    }
-
-    /**
-     * 检查是否需要远程订阅
-     */
-    private boolean needsRemoteSubscription(IListener annotation) {
-
-        // 如果指定了主题且路由策略不是LOCAL_ONLY，需要远程订阅
-        if (StringUtils.hasText(annotation.eventType())) {
-            boolean needRemote = properties.getRoutingStrategy() != RoutingStrategy.LOCAL_ONLY;
-            log.debug("Topic specified: {}, routing strategy: {}, need remote: {}",
-                    annotation.eventType(), properties.getRoutingStrategy(), needRemote);
-            return needRemote;
-        }
-
-        // 根据全局路由策略决定
-        boolean needRemote = properties.getRoutingStrategy() == RoutingStrategy.REMOTE_ONLY ||
-                properties.getRoutingStrategy() == RoutingStrategy.HYBRID;
-        log.debug("Using global routing strategy: {}, need remote: {}", properties.getRoutingStrategy(), needRemote);
-        return needRemote;
     }
 
     /**
      * 构建订阅配置
      */
-    private SubscriptionConfig buildSubscriptionConfig(IListener annotation, String eventType) {
+    private SubscriptionConfig buildSubscriptionConfig(IListener annotation, String eventKey) {
         SubscriptionConfig config = SubscriptionConfig.builder()
                 .messageModel(annotation.messageModel())
-                .eventType(annotation.eventType())
+                .eventKey(annotation.eventKey())
                 .transportType(annotation.transportType())
-                .concurrency(annotation.concurrency())
-                .batchSize(annotation.batchSize())
-                .selector(StringUtils.hasText(annotation.selector()) ? annotation.selector() : null)
+                .ttl(annotation.ttl())
                 .build();
 
         log.debug("Built subscription config: {}", config);
@@ -317,42 +291,36 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
      */
     private static class MessageConsumerWrapper implements MessageConsumer {
         private final IEventListener<IEvent> listener;
-        private final String eventType;
+        private final String eventKey;
         private final MessageSerializer messageSerializer;
 
         @SuppressWarnings("unchecked")
-        public MessageConsumerWrapper(IEventListener<? extends IEvent> listener, String eventType) {
+        public MessageConsumerWrapper(IEventListener<? extends IEvent> listener, String eventKey) {
             this.listener = (IEventListener<IEvent>) listener;
-            this.eventType = eventType;
+            this.eventKey = eventKey;
             this.messageSerializer = new JsonMessageSerializer();
         }
 
         @Override
-        public ConsumeResult consume(TransportMessage message) {
+        public ConsumeResult consume(TransportEvent message) {
             try {
                 // 尝试反序列化为具体的事件对象
                 IEvent event = deserializeEvent(message);
-
+                event.setEventStatus(EventStatus.SUCCESS);
                 ConsumeResult result = listener.onEvent(event);
-                log.debug("Message consumed with result: {} for event type: {}", result, eventType);
+                log.debug("Message consumed with result: {} for event type: {}", result, eventKey);
 
                 return result;
             } catch (Exception e) {
-                log.error("Failed to consume message for event type: {}", eventType, e);
+                log.error("Failed to consume message for event type: {}", eventKey, e);
                 return ConsumeResult.RETRY;
             }
         }
 
-        private IEvent deserializeEvent(TransportMessage message) {
+        private IEvent deserializeEvent(TransportEvent message) {
             try {
                 // 尝试从消息头获取事件类名
-                String eventClassName = null;
-                if (message.getHeaders() != null) {
-                    Object classNameObj = message.getHeaders().get("eventClass");
-                    if (classNameObj != null) {
-                        eventClassName = classNameObj.toString();
-                    }
-                }
+                String eventClassName = message.getEventClass();
 
                 // 如果有具体的事件类名，尝试反序列化为具体类型
                 if (eventClassName != null) {
@@ -369,11 +337,11 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
                 }
 
                 // 回退到通用包装器
-                return new SimpleEventWrapper(message, eventType);
+                return new SimpleEventWrapper(message, eventKey);
 
             } catch (Exception e) {
                 log.warn("Failed to deserialize event, using generic wrapper", e);
-                return new SimpleEventWrapper(message, eventType);
+                return new SimpleEventWrapper(message, eventKey);
             }
         }
     }
@@ -382,37 +350,37 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
      * 简单的事件包装器（临时实现）
      */
     private static class SimpleEventWrapper implements IEvent {
-        private final TransportMessage message;
-        private final String eventType;
+        private final TransportEvent message;
+        private final String eventKey;
 
-        public SimpleEventWrapper(TransportMessage message, String eventType) {
+        public SimpleEventWrapper(TransportEvent message, String eventKey) {
             this.message = message;
-            this.eventType = eventType;
+            this.eventKey = eventKey;
         }
 
         @Override
         public String getEventId() {
-            return message.getMessageId();
+            return "";
         }
 
         @Override
-        public String getEventType() {
-            return eventType;
+        public String getEventKey() {
+            return "";
         }
 
         @Override
-        public java.time.LocalDateTime getCreateTime() {
-            return java.time.LocalDateTime.now();
+        public LocalDateTime getCreateTime() {
+            return null;
         }
 
         @Override
-        public Map<String, Object> getMetadata() {
-            return message.getHeaders() != null ? message.getHeaders() : new java.util.HashMap<>();
+        public EventStatus getEventStatus() {
+            return null;
         }
 
         @Override
-        public Map<String, String> getProperties() {
-            return message.getProperties() != null ? message.getProperties() : new java.util.HashMap<>();
+        public void setEventStatus(EventStatus eventStatus) {
+
         }
 
         @Override
@@ -421,17 +389,7 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
         }
 
         @Override
-        public void setEventType(String eventType) {
-
-        }
-
-        @Override
-        public void setProperty(String key, String value) {
-
-        }
-
-        @Override
-        public void setMetadata(String key, Object value) {
+        public void setEventKey(String eventKey) {
 
         }
     }

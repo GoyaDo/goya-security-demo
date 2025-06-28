@@ -1,6 +1,6 @@
 package com.ysmjjsy.goya.security.bus.spi;
 
-import com.ysmjjsy.goya.security.bus.enums.MessageModel;
+import com.ysmjjsy.goya.security.bus.enums.EventModel;
 import com.ysmjjsy.goya.security.bus.enums.TransportType;
 import lombok.Builder;
 import lombok.Data;
@@ -18,19 +18,25 @@ public class SubscriptionConfig {
     /**
      * 消息模型
      */
-    private MessageModel messageModel;
+    private EventModel messageModel;
 
     /**
      * 监听的事件类型列表
      * 当使用方法级监听器时，用于指定监听的事件类型
      * 对于类级监听器，框架会自动从泛型参数推断
      */
-    private String eventType;
+    private String eventKey;
 
     /**
      * 传输层类型枚举
      */
     private TransportType transportType;
+
+    /**
+     * 消息过期时间（秒）
+     */
+    @Builder.Default
+    private long ttl = 0L;
 
     /**
      * 并发线程数

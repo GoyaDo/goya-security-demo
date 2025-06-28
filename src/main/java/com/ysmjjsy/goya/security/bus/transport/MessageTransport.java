@@ -1,11 +1,11 @@
 package com.ysmjjsy.goya.security.bus.transport;
 
 
-import com.ysmjjsy.goya.security.bus.enums.MessageCapability;
+import com.ysmjjsy.goya.security.bus.enums.EventCapability;
 import com.ysmjjsy.goya.security.bus.enums.TransportType;
 import com.ysmjjsy.goya.security.bus.spi.MessageConsumer;
 import com.ysmjjsy.goya.security.bus.spi.SubscriptionConfig;
-import com.ysmjjsy.goya.security.bus.spi.TransportMessage;
+import com.ysmjjsy.goya.security.bus.spi.TransportEvent;
 import com.ysmjjsy.goya.security.bus.spi.TransportResult;
 
 import java.util.Set;
@@ -24,10 +24,10 @@ public interface MessageTransport {
     /**
      * 发送消息
      *
-     * @param message 传输消息
+     * @param transportEvent 传输消息
      * @return 传输结果
      */
-    TransportResult send(TransportMessage message);
+    TransportResult send(TransportEvent transportEvent);
 
     /**
      * 订阅消息
@@ -49,7 +49,7 @@ public interface MessageTransport {
      *
      * @return 支持的消息能力集合
      */
-    Set<MessageCapability> getSupportedCapabilities();
+    Set<EventCapability> getSupportedCapabilities();
 
     /**
      * 检查传输层健康状态

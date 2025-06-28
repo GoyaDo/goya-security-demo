@@ -1,6 +1,6 @@
 package com.ysmjjsy.goya.security.bus.route;
 
-import com.ysmjjsy.goya.security.bus.enums.MessageModel;
+import com.ysmjjsy.goya.security.bus.enums.EventModel;
 import lombok.Builder;
 import lombok.Data;
 
@@ -23,7 +23,7 @@ public class RoutingContext {
     /**
      * 消息模型
      */
-    private MessageModel messageModel;
+    private EventModel eventModel;
 
     /**
      * 业务域（用于Exchange/Topic命名）
@@ -33,7 +33,7 @@ public class RoutingContext {
     /**
      * 事件类型（用于路由键）
      */
-    private String eventType;
+    private String eventKey;
 
     /**
      * 消费者组（用于Queue命名）

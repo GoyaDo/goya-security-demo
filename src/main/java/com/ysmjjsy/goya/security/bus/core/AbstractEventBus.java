@@ -1,32 +1,28 @@
 package com.ysmjjsy.goya.security.bus.core;
 
+import com.ysmjjsy.goya.security.bus.BusException;
 import com.ysmjjsy.goya.security.bus.api.IEvent;
 import com.ysmjjsy.goya.security.bus.api.IEventBus;
 import com.ysmjjsy.goya.security.bus.api.PublishResult;
 import com.ysmjjsy.goya.security.bus.decision.DecisionResult;
 import com.ysmjjsy.goya.security.bus.decision.MessageConfigDecision;
-import com.ysmjjsy.goya.security.bus.duplicate.MessageDeduplicator;
 import com.ysmjjsy.goya.security.bus.encry.MessageEncryptor;
-import com.ysmjjsy.goya.security.bus.enums.MessageStatus;
-import com.ysmjjsy.goya.security.bus.enums.MessageType;
-import com.ysmjjsy.goya.security.bus.enums.ReliabilityLevel;
+import com.ysmjjsy.goya.security.bus.enums.EventStatus;
 import com.ysmjjsy.goya.security.bus.enums.TransportType;
-import com.ysmjjsy.goya.security.bus.route.RoutingContext;
 import com.ysmjjsy.goya.security.bus.serializer.MessageSerializer;
-import com.ysmjjsy.goya.security.bus.spi.MessageRecord;
-import com.ysmjjsy.goya.security.bus.spi.TransportMessage;
+import com.ysmjjsy.goya.security.bus.spi.EventRecord;
+import com.ysmjjsy.goya.security.bus.spi.TransportEvent;
 import com.ysmjjsy.goya.security.bus.spi.TransportResult;
-import com.ysmjjsy.goya.security.bus.store.MessageStore;
+import com.ysmjjsy.goya.security.bus.store.EventStore;
 import com.ysmjjsy.goya.security.bus.transport.MessageTransport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.retry.policy.SimpleRetryPolicy;
+import org.springframework.retry.support.RetryTemplate;
 import org.springframework.util.StringUtils;
 
-import java.time.Duration;
-import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * 默认事件总线实现
@@ -45,14 +41,8 @@ public abstract class AbstractEventBus implements IEventBus {
     private final TaskExecutor busTaskExecutor;
     private final LocalEventBus localEventBus;
     private final MessageSerializer messageSerializer;
-    private final MessageStore messageStore;
-    private final MessageDeduplicator messageDeduplicator;
-    private Map<String, MessageTransport> messageTransportMap;
-
-    @Override
-    public PublishResult publish(IEvent event) {
-        return publish(event, null);
-    }
+    private final EventStore eventStore;
+    private final RetryTemplate retryTemplate;
 
     @Override
     public PublishResult publish(IEvent event, MessageConfigHint hint) {
@@ -68,15 +58,18 @@ public abstract class AbstractEventBus implements IEventBus {
             DecisionResult decision = messageConfigDecision.decide(event, hint);
             log.debug("Decision result for event {}: {}", event.getEventId(), decision);
 
+            event.setEventStatus(EventStatus.PENDING);
+
+            if (decision.isLocalRecord()) {
+                eventStore.save(EventRecord.builder().event(event)
+                        .decision(decision).build());
+            }
+
             // 根据路由范围决定处理方式
-            switch (decision.getRouteScope()) {
-                case LOCAL_ONLY:
-                    return publishLocal(event, decision);
-                case REMOTE_ONLY:
-                    return publishRemote(event, decision);
-                case AUTO:
-                default:
-                    return publishAuto(event, decision);
+            if (TransportType.LOCAL.equals(decision.getTransportType())) {
+                return publishLocal(event, decision);
+            } else {
+                return publishAuto(event, decision);
             }
 
         } catch (Exception e) {
@@ -85,49 +78,17 @@ public abstract class AbstractEventBus implements IEventBus {
         }
     }
 
-    @Override
-    public PublishResult publishDelayed(IEvent event, Duration delay) {
-        MessageConfigHint hint = MessageConfigHint.delayed(delay);
-        return publish(event, hint);
-    }
-
-    @Override
-    public PublishResult publishScheduled(IEvent event, LocalDateTime deliverTime) {
-        MessageConfigHint hint = MessageConfigHint.scheduled(deliverTime);
-        return publish(event, hint);
-    }
-
-    @Override
-    public PublishResult publishOrdered(IEvent event, String sequenceKey) {
-        MessageConfigHint hint = MessageConfigHint.ordered(sequenceKey);
-        return publish(event, hint);
-    }
-
-    @Override
-    public PublishResult publishTransactional(IEvent event) {
-        MessageConfigHint hint = MessageConfigHint.transactional();
-        return publish(event, hint);
-    }
-
     /**
      * 仅本地发布
      */
     private PublishResult publishLocal(IEvent event, DecisionResult decision) {
         log.debug("Publishing event {} locally", event.getEventId());
-        boolean success = localEventBus.publish(event);
+        boolean success = localEventBus.publish(event, decision);
         if (success) {
             return PublishResult.success(event.getEventId(), TransportType.LOCAL);
         } else {
-            return PublishResult.failure("No local listeners found for event: " + event.getEventType());
+            return PublishResult.failure("No local listeners found for event: " + event.getEventKey());
         }
-    }
-
-    /**
-     * 仅远程发布
-     */
-    private PublishResult publishRemote(IEvent event, DecisionResult decision) {
-        log.debug("Publishing event {} remotely via {}", event.getEventId(), decision.getTransportType());
-        return sendToRemoteTransport(event, decision);
     }
 
     /**
@@ -135,25 +96,7 @@ public abstract class AbstractEventBus implements IEventBus {
      */
     private PublishResult publishAuto(IEvent event, DecisionResult decision) {
         log.debug("Publishing event {} in auto mode", event.getEventId());
-
-        // 首先尝试本地发布
-        boolean hasLocalListeners = localEventBus.hasListeners(event.getEventType());
-        if (hasLocalListeners) {
-            boolean localSuccess = localEventBus.publish(event);
-            log.debug("Local publish result for {}: {}", event.getEventId(), localSuccess);
-        }
-
-        // 根据可靠性级别和业务需求决定是否需要远程发布
-        if (needsRemotePublish(decision, hasLocalListeners)) {
-            PublishResult remoteResult = sendToRemoteTransport(event, decision);
-            if (!remoteResult.isSuccess()) {
-                return remoteResult; // 远程发布失败
-            }
-            return PublishResult.success(event.getEventId(), decision.getTransportType());
-        }
-
-        // 仅本地发布成功
-        return PublishResult.success(event.getEventId(), TransportType.LOCAL);
+        return sendToRemoteTransport(event, decision);
     }
 
     /**
@@ -161,39 +104,16 @@ public abstract class AbstractEventBus implements IEventBus {
      */
     private PublishResult sendToRemoteTransport(IEvent event, DecisionResult decision) {
 
-        MessageTransport transport = messageConfigDecision.getRegisteredTransports().get(decision.getTransportType());
+        MessageTransport transport = getTransportByDecision(decision);
         if (transport == null) {
             return PublishResult.failure("No transport registered for type: " + decision.getTransportType());
         }
         try {
-            // 幂等性检查
-            if (messageDeduplicator != null && messageDeduplicator.isDuplicate(event.getEventId())) {
-                log.warn("Duplicate message detected, skipping: {}", event.getEventId());
-                return PublishResult.success(event.getEventId(), decision.getTransportType());
-            }
-
             // 构建传输消息
-            TransportMessage transportMessage = buildTransportMessage(event, decision);
+            TransportEvent transportEvent = buildTransportEvent(event, decision);
 
-            // 如果需要可靠投递，先保存到MessageStore
-            if (decision.isPersistent()) {
-                MessageRecord record = MessageRecord.fromTransportMessage(transportMessage, decision.getTransportType().name());
-                messageStore.save(record);
-                log.debug("Saved message to store for reliable delivery: {}", event.getEventId());
-
-                // 异步发送
-                busTaskExecutor.execute(() -> sendReliableMessage(record, transport));
-                return PublishResult.success(event.getEventId(), decision.getTransportType());
-            }
-
-            // 直接发送消息
-            TransportResult result = transport.send(transportMessage);
-
+            TransportResult result = sendEvent(transportEvent, transport);
             if (result.isSuccess()) {
-                // 标记消息已处理（用于去重）
-                if (messageDeduplicator != null) {
-                    messageDeduplicator.markAsProcessed(event.getEventId());
-                }
                 return PublishResult.success(result.getMessageId(), decision.getTransportType());
             } else {
                 return PublishResult.failure("Transport send failed: " + result.getErrorMessage(), result.getThrowable());
@@ -205,14 +125,21 @@ public abstract class AbstractEventBus implements IEventBus {
     }
 
     /**
+     * 根据决策结果获取传输层
+     */
+    private MessageTransport getTransportByDecision(DecisionResult decision) {
+        return messageConfigDecision.getRegisteredTransports().get(decision.getTransportType());
+    }
+
+    /**
      * 构建传输消息
      */
-    private TransportMessage buildTransportMessage(IEvent event, DecisionResult decision) {
+    private TransportEvent buildTransportEvent(IEvent event, DecisionResult decision) {
         // 序列化事件
         byte[] body = messageSerializer.serialize(event);
 
         // 处理加密
-        if (decision.isEnableEncryption()) {
+        if (decision.getEnableEncryption()) {
             try {
                 MessageEncryptor encryptor = new MessageEncryptor();
                 MessageEncryptor.EncryptionResult encryptionResult =
@@ -227,91 +154,33 @@ public abstract class AbstractEventBus implements IEventBus {
             }
         }
 
-        // 构建消息头
-        Map<String, Object> headers = new HashMap<>();
-        headers.put("eventId", event.getEventId());
-        headers.put("eventType", event.getEventType());
-        headers.put("eventClass", event.getClass().getName());
-        headers.put("createTime", event.getCreateTime());
-        headers.put("messageModel", decision.getMessageModel().name());
-        headers.put("messageType", decision.getMessageType().name());
-        headers.put("reliabilityLevel", decision.getReliabilityLevel().name());
-
-        // 添加高级特性标识
-        if (decision.getBusinessPriority() != null) {
-            headers.put("businessPriority", decision.getBusinessPriority().name());
-        }
-        if (decision.isEnableCompression()) {
-            headers.put("compressed", true);
-            headers.put("compressionType", "gzip");
-            headers.put("originalSize", body.length);
-        }
-        if (decision.isEnableEncryption()) {
-            headers.put("encrypted", true);
-            headers.put("encryptionType", "aes128");
-        }
-        if (decision.isPerformanceSensitive()) {
-            headers.put("performanceSensitive", true);
-        }
-
-        // 合并自定义属性
-        Map<String, Object> customProperties = new HashMap<>();
-        if (event.getMetadata() != null) {
-            customProperties.putAll(event.getMetadata());
-        }
-        if (decision.getCustomProperties() != null) {
-            customProperties.putAll(decision.getCustomProperties());
-        }
-
         // 构建传输消息
-        TransportMessage.TransportMessageBuilder builder = TransportMessage.builder()
-                .messageId(event.getEventId())
-                .routingContext(decision.getRoutingContext())
-                .body(body)
-                .originalBodySize(body.length)
-                .headers(headers)
-                .properties(event.getProperties())
-                .customProperties(customProperties.isEmpty() ? null : customProperties)
-                .messageType(event.getEventType())
+        TransportEvent.TransportEventBuilder builder = TransportEvent.builder()
+                .eventId(event.getEventId())
+                .originEventKey(event.getEventKey())
+                .eventClass(event.getClass().getName())
+                .createTime(event.getCreateTime())
+                .eventStatus(event.getEventStatus())
                 .priority(event.getPriority())
-                .sequenceKey(decision.getSequenceKey())
+                .body(body)
+                .routingContext(decision.getRoutingContext())
+                .eventModel(decision.getEventModel())
+                .eventType(decision.getEventType())
+                .reliabilityLevel(decision.getReliabilityLevel())
+                .transportType(decision.getTransportType())
                 .delayTime(decision.getDelayTime())
                 .deliverTime(decision.getDeliverTime())
-                .ttl(decision.getMessageTtl() == null ? null : decision.getMessageTtl().toMillis())
-                .businessPriority(decision.getBusinessPriority())
-                .enableCompression(decision.isEnableCompression())
-                .enableEncryption(decision.isEnableEncryption())
+                .sequenceKey(decision.getSequenceKey())
+                .ttl(decision.getTtl())
+                .localRecord(decision.isLocalRecord())
                 .persistent(decision.isPersistent())
                 .retryTimes(decision.getRetryTimes())
-                .performanceSensitive(decision.isPerformanceSensitive());
+                .enableCompression(decision.getEnableCompression())
+                .enableEncryption(decision.getEnableEncryption())
+                .idempotence(decision.getIdempotence())
+                .transactionalId(decision.getTransactionalId())
+                .properties(decision.getProperties());
         return builder.build();
-    }
-
-    /**
-     * 判断是否需要远程发布
-     */
-    private boolean needsRemotePublish(DecisionResult decision, boolean hasLocalListeners) {
-        // 事务消息总是需要远程发布
-        if (decision.getReliabilityLevel() == ReliabilityLevel.TRANSACTIONAL) {
-            return true;
-        }
-
-        // 延迟/定时消息需要远程发布
-        if (decision.getMessageType() == MessageType.DELAYED || decision.getMessageType() == MessageType.SCHEDULED) {
-            return true;
-        }
-
-        // 顺序消息需要远程发布
-        if (decision.getMessageType() == MessageType.ORDERED) {
-            return true;
-        }
-
-        // 如果没有本地监听器，且不是仅发后不管的消息，则需要远程发布
-        if (!hasLocalListeners && decision.getReliabilityLevel() != ReliabilityLevel.FIRE_AND_FORGET) {
-            return true;
-        }
-
-        return false;
     }
 
     /**
@@ -321,7 +190,7 @@ public abstract class AbstractEventBus implements IEventBus {
         if (!StringUtils.hasText(event.getEventId())) {
             throw new IllegalArgumentException("Event ID cannot be empty");
         }
-        if (!StringUtils.hasText(event.getEventType())) {
+        if (!StringUtils.hasText(event.getEventKey())) {
             throw new IllegalArgumentException("Event type cannot be empty");
         }
     }
@@ -329,83 +198,66 @@ public abstract class AbstractEventBus implements IEventBus {
     /**
      * 发送可靠消息（带重试）
      */
-    private void sendReliableMessage(MessageRecord record, MessageTransport transport) {
-        try {
-            // 更新状态为发送中
-            messageStore.updateStatus(record.getMessageId(), MessageStatus.SENDING, null);
+    private TransportResult sendEvent(TransportEvent transportEvent, MessageTransport transport) {
+        CompletableFuture<TransportResult> resultCompletableFuture = CompletableFuture.supplyAsync(() -> {
+            try {
+                // 更新状态为发送中
+                eventStore.updateStatus(transportEvent.getEventId(), EventStatus.SENDING, null);
+                transportEvent.setEventStatus(EventStatus.SENDING);
+                // 发送消息
+                TransportResult result = transport.send(transportEvent);
 
-            // 注意：这里不重新生成路由上下文，因为在重试时很难完整恢复
-            // 我们依赖 RabbitMQTransport 中的回退逻辑来处理没有路由上下文的情况
-
-
-            RoutingContext routingContext = RoutingContext.builder()
-                    .businessDomain(record.getBusinessDomain())
-                    .eventType(record.getEventType())
-                    .consumerGroup(record.getConsumerGroup())
-                    .routingSelector(record.getRoutingSelector())
-                    .messageModel(record.getMessageModel())
-                    .build();
-
-            // 重新构建传输消息
-            TransportMessage transportMessage = TransportMessage.builder()
-                    .messageId(record.getMessageId())
-                    .routingContext(routingContext)
-                    .body(record.getBody())
-                    .headers(record.getHeaders())
-                    .properties(record.getProperties())
-                    .priority(record.getPriority())
-                    .ttl(record.getTtl())
-                    .delayTime(record.getDelayTime())
-                    .deliverTime(record.getDeliverTime())
-                    .sequenceKey(record.getSequenceKey())
-                    .build();
-
-            // 发送消息
-            TransportResult result = transport.send(transportMessage);
-
-            if (result.isSuccess()) {
-                // 发送成功
-                messageStore.updateStatus(record.getMessageId(), MessageStatus.SUCCESS, null);
-                // 标记已处理用于去重
-                if (messageDeduplicator != null) {
-                    messageDeduplicator.markAsProcessed(record.getMessageId());
+                if (result.isSuccess()) {
+                    // 发送成功
+                    eventStore.updateStatus(transportEvent.getEventId(), EventStatus.SUCCESS, null);
+                    log.debug("Reliable message sent successfully: {}", transportEvent.getEventId());
+                    transportEvent.setEventStatus(EventStatus.SUCCESS);
+                    return result;
+                } else {
+                    // 发送失败，准备重试
+                    return handleSendFailure(transportEvent, transport, result.getErrorMessage(), result.getThrowable());
                 }
-                log.debug("Reliable message sent successfully: {}", record.getMessageId());
-            } else {
-                // 发送失败，准备重试
-                handleSendFailure(record, result.getErrorMessage(), result.getThrowable());
+            } catch (BusException e) {
+                log.warn("Failed to send event {}: {}", transportEvent.getEventId(), e.getMessage());
+                return TransportResult.failure(e.getMessage(), e);
+            } catch (Exception e) {
+                log.error("Failed to send reliable message: {}", transportEvent.getEventId(), e);
+                return handleSendFailure(transportEvent, transport, e.getMessage(), e);
             }
-
-        } catch (Exception e) {
-            log.error("Failed to send reliable message: {}", record.getMessageId(), e);
-            handleSendFailure(record, e.getMessage(), e);
-        }
+        }, busTaskExecutor);
+        return resultCompletableFuture.join();
     }
 
     /**
      * 处理发送失败
      */
-    private void handleSendFailure(MessageRecord record, String errorMessage, Throwable throwable) {
-        record.incrementRetryCount();
+    private TransportResult handleSendFailure(TransportEvent transportEvent, MessageTransport transport, String errorMessage, Throwable throwable) {
+        try {
+            SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy();
+            retryPolicy.setMaxAttempts(transportEvent.getRetryTimes());
+            retryTemplate.setRetryPolicy(retryPolicy);
 
-        if (record.canRetry()) {
-            // 计算下次重试时间（简单的指数退避）
-            long retryDelay = Math.min(1000L * (1L << record.getRetryCount()), 60000L); // 最大1分钟
-            LocalDateTime nextRetryTime = LocalDateTime.now().plusNanos(retryDelay * 1_000_000);
-            record.setNextRetryTime(nextRetryTime);
+            TransportResult result = retryTemplate.execute(context -> {
+                log.warn("Retrying to send event: {}, attempt {}", transportEvent.getEventId(), context.getRetryCount() + 1);
+                return transport.send(transportEvent);
+            });
 
-            messageStore.updateStatus(record.getMessageId(), MessageStatus.FAILED, errorMessage);
-            log.warn("Message send failed, will retry after {}: {} - {}",
-                    retryDelay / 1000.0 + "s", record.getMessageId(), errorMessage);
-        } else {
-            // 超过最大重试次数，进入死信状态
-            messageStore.updateStatus(record.getMessageId(), MessageStatus.DEAD_LETTER, errorMessage);
-            log.error("Message send failed after {} retries, moved to dead letter: {} - {}",
-                    record.getMaxRetryTimes(), record.getMessageId(), errorMessage);
+            if (result.isSuccess()) {
+                eventStore.updateStatus(transportEvent.getEventId(), EventStatus.SUCCESS, null);
+                log.debug("Retry succeeded for event: {}", transportEvent.getEventId());
+                transportEvent.setEventStatus(EventStatus.SUCCESS);
+            } else {
+                eventStore.updateStatus(transportEvent.getEventId(), EventStatus.FAILED, errorMessage);
+                log.error("Retry failed for event: {}, error: {}", transportEvent.getEventId(), result.getErrorMessage());
+                transportEvent.setEventStatus(EventStatus.FAILED);
+            }
+
+            return result;
+        } catch (Exception ex) {
+            log.error("Retries exhausted for event: {}, error: {}", transportEvent.getEventId(), ex.getMessage(), ex);
+            eventStore.updateStatus(transportEvent.getEventId(), EventStatus.FAILED, ex.getMessage());
+            transportEvent.setEventStatus(EventStatus.FAILED);
+            return TransportResult.failure("Retries exhausted: " + errorMessage, ex);
         }
-    }
-
-    public LocalEventBus getLocalEventBus() {
-        return localEventBus;
     }
 } 

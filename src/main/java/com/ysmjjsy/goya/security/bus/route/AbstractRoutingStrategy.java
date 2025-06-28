@@ -3,7 +3,7 @@ package com.ysmjjsy.goya.security.bus.route;
 import com.ysmjjsy.goya.security.bus.api.IEvent;
 import com.ysmjjsy.goya.security.bus.configuration.properties.BusProperties;
 import com.ysmjjsy.goya.security.bus.core.MessageConfigHint;
-import com.ysmjjsy.goya.security.bus.enums.MessageModel;
+import com.ysmjjsy.goya.security.bus.enums.EventModel;
 import com.ysmjjsy.goya.security.bus.resolver.PropertyResolver;
 import com.ysmjjsy.goya.security.bus.spi.SubscriptionConfig;
 import lombok.RequiredArgsConstructor;
@@ -25,30 +25,30 @@ public abstract class AbstractRoutingStrategy implements RoutingStrategy {
 
     @Override
     public RoutingContext buildSendingContext(IEvent event, MessageConfigHint hint) {
-        return determineRoutingContext(event.getEventType(),hint.getMessageModel());
+        return determineRoutingContext(event.getEventKey(),hint.getMessageModel());
     }
 
     @Override
     public RoutingContext buildSubscriptionContext(SubscriptionConfig config) {
         // 确定业务域
-        return determineRoutingContext(config.getEventType(),config.getMessageModel());
+        return determineRoutingContext(config.getEventKey(),config.getMessageModel());
     }
 
     /**
      * 确定事件的业务域
      */
-    private RoutingContext determineRoutingContext(String eventType, MessageModel messageModel) {
+    private RoutingContext determineRoutingContext(String eventKey, EventModel messageModel) {
         final String applicationName = PropertyResolver.getApplicationName(applicationContext.getEnvironment());
         final String busPrefix = busProperties.getBusPrefix();
-        final String businessDomain = applicationName + "." + busPrefix + "-" + eventType;
+        final String businessDomain = applicationName + "." + busPrefix + "-" + eventKey;
 
-        String consumerGroup = "queue-" + eventType;
+        String consumerGroup = "queue-" + eventKey;
         return RoutingContext.builder()
                 .businessDomain(businessDomain)
-                .eventType(eventType)
+                .eventKey(eventKey)
                 .consumerGroup(consumerGroup)
-                .routingSelector(eventType)
-                .messageModel(messageModel)
+                .routingSelector(eventKey)
+                .eventModel(messageModel)
                 .build();
     }
 }

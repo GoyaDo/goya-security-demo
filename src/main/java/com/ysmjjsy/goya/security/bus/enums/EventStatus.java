@@ -8,7 +8,7 @@ package com.ysmjjsy.goya.security.bus.enums;
  * @author goya
  * @since 2025/6/24
  */
-public enum MessageStatus {
+public enum EventStatus {
 
     /**
      * 待发送 - 消息已保存，等待发送
@@ -52,7 +52,7 @@ public enum MessageStatus {
 
     private final String description;
 
-    MessageStatus(String description) {
+    EventStatus(String description) {
         this.description = description;
     }
 

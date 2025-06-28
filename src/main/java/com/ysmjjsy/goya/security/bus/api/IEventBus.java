@@ -15,14 +15,6 @@ import java.time.LocalDateTime;
 public interface IEventBus {
 
     /**
-     * 发布事件 - 使用框架默认配置
-     *
-     * @param event 要发布的事件
-     * @return 发布结果
-     */
-    PublishResult publish(IEvent event);
-
-    /**
      * 发布事件 - 核心方法，使用配置提示
      *
      * @param event 要发布的事件
@@ -32,13 +24,26 @@ public interface IEventBus {
     PublishResult publish(IEvent event, MessageConfigHint hint);
 
     /**
+     * 发布事件 - 使用框架默认配置
+     *
+     * @param event 要发布的事件
+     * @return 发布结果
+     */
+    default PublishResult publish(IEvent event) {
+        return publish(event, null);
+    }
+
+    /**
      * 发布延迟消息 - 便捷方法
      *
      * @param event 要发布的事件
      * @param delay 延迟时长
      * @return 发布结果
      */
-    PublishResult publishDelayed(IEvent event, Duration delay);
+    default PublishResult publishDelayed(IEvent event, Duration delay) {
+        MessageConfigHint hint = MessageConfigHint.delayed(delay);
+        return publish(event, hint);
+    }
 
     /**
      * 发布定时消息 - 便捷方法
@@ -47,7 +52,10 @@ public interface IEventBus {
      * @param deliverTime 投递时间
      * @return 发布结果
      */
-    PublishResult publishScheduled(IEvent event, LocalDateTime deliverTime);
+    default PublishResult publishScheduled(IEvent event, LocalDateTime deliverTime) {
+        MessageConfigHint hint = MessageConfigHint.scheduled(deliverTime);
+        return publish(event, hint);
+    }
 
     /**
      * 发布顺序消息 - 便捷方法
@@ -56,7 +64,10 @@ public interface IEventBus {
      * @param sequenceKey 顺序消息键，相同键的消息将按顺序消费
      * @return 发布结果
      */
-    PublishResult publishOrdered(IEvent event, String sequenceKey);
+    default PublishResult publishOrdered(IEvent event, String sequenceKey) {
+        MessageConfigHint hint = MessageConfigHint.ordered(sequenceKey);
+        return publish(event, hint);
+    }
 
     /**
      * 发布事务消息 - 便捷方法
@@ -65,5 +76,8 @@ public interface IEventBus {
      * @param event 要发布的事件
      * @return 发布结果
      */
-    PublishResult publishTransactional(IEvent event);
+    default PublishResult publishTransactional(IEvent event) {
+        MessageConfigHint hint = MessageConfigHint.transactional();
+        return publish(event, hint);
+    }
 } 
