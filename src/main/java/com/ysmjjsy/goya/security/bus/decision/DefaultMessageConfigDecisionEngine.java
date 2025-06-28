@@ -15,6 +15,7 @@ import org.springframework.util.StringUtils;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -75,29 +76,25 @@ public class DefaultMessageConfigDecisionEngine implements MessageConfigDecision
         // 1. 决策消息模型
         EventModel messageModel = decideMessageModel(event, hint);
         builder.eventModel(messageModel);
-        hint.setMessageModel(messageModel);
         log.debug("Decided messageModel: {}", messageModel);
 
         // 2. 决策消息类型
         EventType messageType = decideMessageType(event, hint);
         builder.eventType(messageType);
-        hint.setEventType(messageType);
         log.debug("Decided messageType: {}", messageType);
 
         // 3. 决策可靠性级别
         ReliabilityLevel reliabilityLevel = decideReliabilityLevel(event, hint);
         builder.reliabilityLevel(reliabilityLevel);
-        hint.setReliabilityLevel(reliabilityLevel);
         log.debug("Decided reliabilityLevel: {}", reliabilityLevel);
 
         // 5. 决策传输层类型
         TransportType transportType = decideTransportType(hint, messageType);
         builder.transportType(transportType);
-        hint.setTransportType(transportType);
         log.debug("Decided transportType: {}", transportType);
 
         // 6 构建路由上下文
-        RoutingContext routingContext = routingStrategyManager.buildSendingContext(event, hint);
+        RoutingContext routingContext = routingStrategyManager.buildSendingContext(event, messageModel, transportType);
         // 更新destination为路由上下文提供的值
         builder.routingContext(routingContext);
         log.debug("Updated routing context: {}", routingContext);
@@ -113,14 +110,16 @@ public class DefaultMessageConfigDecisionEngine implements MessageConfigDecision
         log.debug("Decided enableEncryption: {}", enableEncryption);
 
         // 10. 设置其他相关配置
-        builder.delayTime(hint.getDelayTime());
-        builder.deliverTime(hint.getDeliverTime());
-        builder.sequenceKey(hint.getSequenceKey());
-        builder.ttl(hint.getTtl());
-        builder.persistent(hint.isPersistent());
-        builder.retryTimes(hint.getRetryTimes());
-        builder.idempotence(hint.getIdempotence());
-        builder.properties(hint.getProperties());
+        if (Objects.nonNull(hint)) {
+            builder.delayTime(hint.getDelayTime());
+            builder.deliverTime(hint.getDeliverTime());
+            builder.sequenceKey(hint.getSequenceKey());
+            builder.ttl(hint.getTtl());
+            builder.persistent(hint.isPersistent());
+            builder.retryTimes(hint.getRetryTimes());
+            builder.idempotence(hint.getIdempotence());
+            builder.properties(hint.getProperties());
+        }
 
         DecisionResult result = builder.build();
         log.info("Decision completed for event: {}, result: {}", event.getEventKey(), result);

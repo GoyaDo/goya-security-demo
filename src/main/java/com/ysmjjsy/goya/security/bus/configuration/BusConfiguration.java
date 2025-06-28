@@ -75,12 +75,14 @@ public class BusConfiguration {
 
         // 1. 重试策略（最多重试3次）
         SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy();
-        retryPolicy.setMaxAttempts(3); // 可被动态替换，如方法中再次设置
+        // 可被动态替换，如方法中再次设置
+        retryPolicy.setMaxAttempts(3);
         retryTemplate.setRetryPolicy(retryPolicy);
 
         // 2. 回退策略（每次重试间隔1000ms）
         FixedBackOffPolicy backOffPolicy = new FixedBackOffPolicy();
-        backOffPolicy.setBackOffPeriod(1000L); // 1 秒
+        // 1 秒
+        backOffPolicy.setBackOffPeriod(1000L);
         retryTemplate.setBackOffPolicy(backOffPolicy);
 
         return retryTemplate;

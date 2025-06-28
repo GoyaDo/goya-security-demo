@@ -2,7 +2,6 @@ package com.ysmjjsy.goya.security.bus.route;
 
 import com.ysmjjsy.goya.security.bus.api.IEvent;
 import com.ysmjjsy.goya.security.bus.configuration.properties.BusProperties;
-import com.ysmjjsy.goya.security.bus.core.MessageConfigHint;
 import com.ysmjjsy.goya.security.bus.enums.EventModel;
 import com.ysmjjsy.goya.security.bus.resolver.PropertyResolver;
 import com.ysmjjsy.goya.security.bus.spi.SubscriptionConfig;
@@ -24,8 +23,8 @@ public abstract class AbstractRoutingStrategy implements RoutingStrategy {
     private final BusProperties busProperties;
 
     @Override
-    public RoutingContext buildSendingContext(IEvent event, MessageConfigHint hint) {
-        return determineRoutingContext(event.getEventKey(),hint.getMessageModel());
+    public RoutingContext buildSendingContext(IEvent event, EventModel eventModel) {
+        return determineRoutingContext(event.getEventKey(),eventModel);
     }
 
     @Override
@@ -37,7 +36,7 @@ public abstract class AbstractRoutingStrategy implements RoutingStrategy {
     /**
      * 确定事件的业务域
      */
-    private RoutingContext determineRoutingContext(String eventKey, EventModel messageModel) {
+    private RoutingContext determineRoutingContext(String eventKey, EventModel eventModel) {
         final String applicationName = PropertyResolver.getApplicationName(applicationContext.getEnvironment());
         final String busPrefix = busProperties.getBusPrefix();
         final String businessDomain = applicationName + "." + busPrefix + "-" + eventKey;
@@ -48,7 +47,7 @@ public abstract class AbstractRoutingStrategy implements RoutingStrategy {
                 .eventKey(eventKey)
                 .consumerGroup(consumerGroup)
                 .routingSelector(eventKey)
-                .eventModel(messageModel)
+                .eventModel(eventModel)
                 .build();
     }
 }

@@ -1,7 +1,7 @@
 package com.ysmjjsy.goya.security.bus.route;
 
 import com.ysmjjsy.goya.security.bus.api.IEvent;
-import com.ysmjjsy.goya.security.bus.core.MessageConfigHint;
+import com.ysmjjsy.goya.security.bus.enums.EventModel;
 import com.ysmjjsy.goya.security.bus.spi.SubscriptionConfig;
 
 /**
@@ -18,10 +18,9 @@ public interface RoutingStrategy {
      * 构建发送消息的路由上下文
      * 
      * @param event 事件对象
-     * @param hint 配置提示
      * @return 路由上下文
      */
-    RoutingContext buildSendingContext(IEvent event, MessageConfigHint hint);
+    RoutingContext buildSendingContext(IEvent event, EventModel eventModel);
 
     /**
      * 构建订阅消息的路由上下文

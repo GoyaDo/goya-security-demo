@@ -4,7 +4,6 @@ import com.ysmjjsy.goya.security.bus.annotation.IListener;
 import com.ysmjjsy.goya.security.bus.enums.ConsumeResult;
 import com.ysmjjsy.goya.security.bus.enums.EventModel;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 /**
  * 用户事件监听器示例
@@ -13,7 +12,8 @@ import org.springframework.stereotype.Component;
  * @since 2025/6/24
  */
 @Slf4j
-@Component
+//@Component
+@IListener
 public class UserEventListener {
 
     /**
@@ -21,7 +21,7 @@ public class UserEventListener {
      */
     @IListener(
             messageModel = EventModel.TOPIC,
-            eventKey = "user.created"
+            eventKey = "user.created.default"
     )
     public ConsumeResult handleUserCreated(UserCreatedEvent event) {
         try {
