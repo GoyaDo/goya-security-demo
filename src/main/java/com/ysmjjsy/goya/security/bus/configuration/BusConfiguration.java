@@ -4,7 +4,7 @@ import cn.hutool.extra.spring.SpringUtil;
 import com.ysmjjsy.goya.security.bus.api.IEventBus;
 import com.ysmjjsy.goya.security.bus.configuration.properties.BusProperties;
 import com.ysmjjsy.goya.security.bus.core.DefaultEventBus;
-import com.ysmjjsy.goya.security.bus.core.EventListenerBeanPostProcessor;
+import com.ysmjjsy.goya.security.bus.context.EventListenerBeanPostProcessor;
 import com.ysmjjsy.goya.security.bus.core.LocalEventBus;
 import com.ysmjjsy.goya.security.bus.decision.DefaultMessageConfigDecisionEngine;
 import com.ysmjjsy.goya.security.bus.decision.MessageConfigDecision;

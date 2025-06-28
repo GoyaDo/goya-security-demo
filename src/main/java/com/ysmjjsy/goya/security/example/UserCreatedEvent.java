@@ -3,8 +3,6 @@ package com.ysmjjsy.goya.security.example;
 import com.ysmjjsy.goya.security.bus.domain.AbstractBaseEvent;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import lombok.NoArgsConstructor;
-import lombok.experimental.SuperBuilder;
 
 /**
  * 用户创建事件示例
@@ -14,12 +12,10 @@ import lombok.experimental.SuperBuilder;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-@SuperBuilder
-@NoArgsConstructor
 public class UserCreatedEvent extends AbstractBaseEvent {
     private String userId;
     private String username;
     private String email;
     private String phone;
     private String department;
-} 
+}

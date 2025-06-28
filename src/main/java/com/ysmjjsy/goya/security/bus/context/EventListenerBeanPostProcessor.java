@@ -1,10 +1,11 @@
-package com.ysmjjsy.goya.security.bus.core;
+package com.ysmjjsy.goya.security.bus.context;
 
 import com.ysmjjsy.goya.security.bus.annotation.IListener;
 import com.ysmjjsy.goya.security.bus.api.IEvent;
 import com.ysmjjsy.goya.security.bus.api.IEventBus;
 import com.ysmjjsy.goya.security.bus.api.IEventListener;
 import com.ysmjjsy.goya.security.bus.configuration.properties.BusProperties;
+import com.ysmjjsy.goya.security.bus.core.LocalEventBus;
 import com.ysmjjsy.goya.security.bus.decision.MessageConfigDecision;
 import com.ysmjjsy.goya.security.bus.enums.ConsumeResult;
 import com.ysmjjsy.goya.security.bus.enums.EventStatus;
@@ -48,12 +49,6 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
         Class<?> beanClass = bean.getClass();
 
-        // 处理类级别的@IListener注解
-        IListener classAnnotation = AnnotationUtils.findAnnotation(beanClass, IListener.class);
-        if (classAnnotation != null && bean instanceof IEventListener) {
-            processClassLevelListener(bean, classAnnotation, beanName);
-        }
-
         // 处理方法级别的@IListener注解
         Method[] methods = beanClass.getDeclaredMethods();
         for (Method method : methods) {
@@ -64,39 +59,6 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
         }
 
         return bean;
-    }
-
-    /**
-     * 处理类级别的监听器
-     */
-    @SuppressWarnings("unchecked")
-    private void processClassLevelListener(Object bean, IListener annotation, String beanName) {
-        if (!annotation.enabled()) {
-            log.debug("Listener {} is disabled, skipping registration", beanName);
-            return;
-        }
-
-        try {
-            IEventListener<? extends IEvent> listener = (IEventListener<? extends IEvent>) bean;
-
-            // 解析事件类型
-            String eventKey = resolveEventTypeFromClass(bean.getClass(), annotation);
-            if (!StringUtils.hasText(eventKey)) {
-                log.warn("Could not resolve event type for listener: {}", beanName);
-                return;
-            }
-
-            // 注册到本地事件总线
-            localEventBus.registerListener(eventKey, listener);
-
-            // 注册到远程传输层（如果需要）
-            registerToRemoteTransport(annotation, eventKey, listener);
-
-            log.info("Registered class-level listener: {} for event type: {}", beanName, eventKey);
-
-        } catch (Exception e) {
-            log.error("Failed to register class-level listener: {}", beanName, e);
-        }
     }
 
     /**
@@ -139,13 +101,6 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
     }
 
     /**
-     * 从类的泛型参数解析事件类型
-     */
-    private String resolveEventTypeFromClass(Class<?> listenerClass, IListener annotation) {
-        return annotation.eventKey();
-    }
-
-    /**
      * 从方法参数解析事件类型
      */
     private String resolveEventTypeFromMethod(Method method, IListener annotation) {
@@ -169,22 +124,9 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
     private String extractEventTypeFromClass(Class<?> eventClass) {
         // 如果是具体的事件类，使用类名
         if (!eventClass.equals(IEvent.class)) {
-            String className = eventClass.getSimpleName();
-            // 移除Event后缀
-            if (className.endsWith("Event")) {
-                className = className.substring(0, className.length() - 5);
-            }
-            // 转换为点分隔的小写格式
-            return camelToSnakeCase(className);
+            return eventClass.getSimpleName();
         }
         return null;
-    }
-
-    /**
-     * 驼峰转蛇形命名
-     */
-    private String camelToSnakeCase(String camelCase) {
-        return camelCase.replaceAll("([a-z])([A-Z])", "$1.$2").toLowerCase();
     }
 
     /**
@@ -248,7 +190,7 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
     private SubscriptionConfig buildSubscriptionConfig(IListener annotation, String eventKey) {
         SubscriptionConfig config = SubscriptionConfig.builder()
                 .messageModel(annotation.messageModel())
-                .eventKey(annotation.eventKey())
+                .eventKey(eventKey)
                 .transportType(annotation.transportType())
                 .ttl(annotation.ttl())
                 .build();
@@ -380,16 +322,6 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
 
         @Override
         public void setEventStatus(EventStatus eventStatus) {
-
-        }
-
-        @Override
-        public void setEventId(String eventId) {
-
-        }
-
-        @Override
-        public void setEventKey(String eventKey) {
 
         }
     }

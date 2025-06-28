@@ -5,7 +5,6 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.ysmjjsy.goya.security.bus.api.IEvent;
 import com.ysmjjsy.goya.security.bus.enums.EventStatus;
 import lombok.Data;
-import lombok.experimental.SuperBuilder;
 
 import java.time.LocalDateTime;
 
@@ -20,18 +19,17 @@ import java.time.LocalDateTime;
  */
 @Data
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "@type")
-@SuperBuilder
 public abstract class AbstractBaseEvent implements IEvent {
 
     /**
      * 事件ID - 全局唯一标识符
      */
-    protected String eventId;
+    protected final String eventId;
 
     /**
      * 事件类型
      */
-    protected String eventKey;
+    protected final String eventKey;
 
     /**
      * 事件创建时间

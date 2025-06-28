@@ -1,6 +1,5 @@
 package com.ysmjjsy.goya.security.example;
 
-import cn.hutool.core.util.IdUtil;
 import com.ysmjjsy.goya.security.bus.api.IEventBus;
 import com.ysmjjsy.goya.security.bus.api.PublishResult;
 import lombok.RequiredArgsConstructor;
@@ -11,7 +10,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * 事件测试控制器
@@ -34,14 +32,7 @@ public class EventTestController {
     public Map<String, Object> testUserCreateEvent() {
         try {
             // 创建用户数据
-            UserCreatedEvent userData = UserCreatedEvent.builder()
-                    .eventId(IdUtil.getSnowflakeNextIdStr())
-                    .eventKey("user.created.default")
-                    .userId(UUID.randomUUID().toString())
-                    .username("username")
-                    .email("email")
-                    .phone("13800138000")
-                    .build();
+            UserCreatedEvent userData = new UserCreatedEvent();
 
             // 创建事件
             log.info("Publishing user created event: {}", userData.getEventId());

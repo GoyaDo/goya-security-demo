@@ -56,18 +56,4 @@ public interface IEvent {
     default int getPriority() {
         return 0;
     }
-
-    /**
-     * 设置事件ID
-     *
-     * @param eventId 事件ID
-     */
-    void setEventId(String eventId);
-
-    /**
-     * 设置事件类型
-     *
-     * @param eventKey 事件类型
-     */
-    void setEventKey(String eventKey);
 } 
