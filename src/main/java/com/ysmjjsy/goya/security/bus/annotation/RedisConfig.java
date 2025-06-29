@@ -1,12 +1,12 @@
 package com.ysmjjsy.goya.security.bus.annotation;
 
 /**
- * <p>Kafka Config</p>
+ * <p>Redis Config</p>
  *
  * @author goya
- * @since 2025/6/29 16:57
+ * @since 2025/6/29 21:43
  */
-public @interface KafkaConfig {
+public @interface RedisConfig {
 
     /**
      * 是否启用

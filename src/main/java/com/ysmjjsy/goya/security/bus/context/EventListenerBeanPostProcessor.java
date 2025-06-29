@@ -44,7 +44,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class EventListenerBeanPostProcessor implements BeanPostProcessor {
 
-    private final BusProperties properties;
+    private final BusProperties busProperties;
     private final LocalEventBus localEventBus;
     private final MessageConfigDecision messageConfigDecision;
     private final RoutingStrategyManager routingStrategyManager;
@@ -215,6 +215,11 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
         config.setRoutingContext(routingContext);
 
         TransportType transportType = annotation.transportType();
+
+        if (transportType == TransportType.LOCAL){
+            transportType = busProperties.getDefaultTransport();
+        }
+
         Map<String, Object> properties;
         switch (transportType) {
             case KAFKA:
@@ -251,7 +256,7 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
         }
 
         // 选择默认传输层
-        TransportType defaultTransport = properties.getDefaultTransport();
+        TransportType defaultTransport = busProperties.getDefaultTransport();
         MessageTransport transport = transports.get(defaultTransport);
 
         if (transport != null) {

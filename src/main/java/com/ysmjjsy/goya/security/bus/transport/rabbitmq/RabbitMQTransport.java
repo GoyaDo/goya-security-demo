@@ -13,6 +13,7 @@ import com.ysmjjsy.goya.security.bus.spi.TransportEvent;
 import com.ysmjjsy.goya.security.bus.spi.TransportResult;
 import com.ysmjjsy.goya.security.bus.transport.MessageTransport;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.amqp.core.*;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
@@ -475,17 +476,26 @@ public class RabbitMQTransport implements MessageTransport {
             putProperty(properties, RabbitMQConstants.EXCHANGE_DURABLE, rabbitConfig.exchangeDurable());
             putProperty(properties, RabbitMQConstants.QUEUE_AUTO_DELETE, rabbitConfig.queueAutoDelete());
             putProperty(properties, RabbitMQConstants.EXCHANGE_AUTO_DELETE, rabbitConfig.exchangeAutoDelete());
+            putProperty(properties,RabbitMQConstants.CONCURRENT_CONSUMERS, rabbitConfig.concurrentConsumers());
 
             putProperty(properties, RabbitMQConstants.X_MESSAGE_TTL, rabbitConfig.messageTTL());
             putProperty(properties, RabbitMQConstants.X_EXPIRES, rabbitConfig.expires());
             putProperty(properties, RabbitMQConstants.X_MAX_LENGTH, rabbitConfig.maxLength());
             putProperty(properties, RabbitMQConstants.X_MAX_LENGTH_BYTES, rabbitConfig.maxLengthBytes());
-            putProperty(properties, RabbitMQConstants.X_OVERFLOW, rabbitConfig.overflow());
+            QueueBuilder.Overflow overflow = convertOverflow(rabbitConfig.overflow());
+            if (Objects.nonNull(overflow)) {
+                putProperty(properties, RabbitMQConstants.X_OVERFLOW, rabbitConfig.overflow());
+            }
             putProperty(properties, RabbitMQConstants.X_DEAD_LETTER_EXCHANGE, rabbitConfig.dlx());
             putProperty(properties, RabbitMQConstants.X_DEAD_LETTER_ROUTING_KEY, rabbitConfig.dlrk());
             putProperty(properties, RabbitMQConstants.X_MAX_PRIORITY, rabbitConfig.maxPriority());
-            putProperty(properties, RabbitMQConstants.X_QUEUE_MODE, rabbitConfig.lazy());
-            putProperty(properties, RabbitMQConstants.X_QUEUE_MASTER_LOCATION, rabbitConfig.locator());
+            if (rabbitConfig.lazy()){
+                putProperty(properties, RabbitMQConstants.X_QUEUE_MODE, "lazy");
+            }
+            QueueBuilder.LeaderLocator leaderLocator = convertLocator(rabbitConfig.locator());
+            if (Objects.nonNull(leaderLocator)) {
+                putProperty(properties, RabbitMQConstants.X_QUEUE_MASTER_LOCATION, rabbitConfig.locator());
+            }
             putProperty(properties, RabbitMQConstants.X_SINGLE_ACTIVE_CONSUMER, rabbitConfig.singleActiveConsumer());
             if (rabbitConfig.quorum()) {
                 putProperty(properties, RabbitMQConstants.X_QUEUE_TYPE, "quorum");
@@ -497,6 +507,34 @@ public class RabbitMQTransport implements MessageTransport {
             return properties;
         }
         return Collections.emptyMap();
+    }
+
+    private QueueBuilder.LeaderLocator convertLocator(String locator) {
+        if (StringUtils.isBlank(locator)) {
+            return null;
+        }
+        switch (locator) {
+            case "min-masters":
+                return QueueBuilder.LeaderLocator.minLeaders;
+            case "client-local":
+                return QueueBuilder.LeaderLocator.clientLocal;
+            case "random":
+                return QueueBuilder.LeaderLocator.random;
+        }
+        return null;
+    }
+
+    private QueueBuilder.Overflow convertOverflow(String overflow) {
+        if (StringUtils.isBlank(overflow)) {
+            return null;
+        }
+        switch (overflow) {
+            case "drop-head":
+                return QueueBuilder.Overflow.dropHead;
+            case "reject-publish":
+                return QueueBuilder.Overflow.rejectPublish;
+        }
+        return null;
     }
 
     /**

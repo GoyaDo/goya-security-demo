@@ -7,6 +7,7 @@ import com.ysmjjsy.goya.security.bus.spi.MessageConsumer;
 import com.ysmjjsy.goya.security.bus.spi.SubscriptionConfig;
 import com.ysmjjsy.goya.security.bus.spi.TransportEvent;
 import com.ysmjjsy.goya.security.bus.spi.TransportResult;
+import org.apache.commons.lang3.StringUtils;
 
 import java.lang.annotation.Annotation;
 import java.util.Map;
@@ -71,6 +72,18 @@ public interface MessageTransport {
 
     default void putProperty(Map<String, Object> properties, String key, Object value) {
         if (value !=null){
+            if (value instanceof String){
+                String valueStr = (String) value;
+                if (StringUtils.isBlank(valueStr)){
+                    return;
+                }
+            }
+            if (value instanceof Integer){
+                int valueInt = (int) value;
+                if (valueInt == 0){
+                    return;
+                }
+            }
             properties.put(key, value);
         }
     }

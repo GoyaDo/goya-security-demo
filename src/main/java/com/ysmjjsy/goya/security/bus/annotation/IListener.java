@@ -63,4 +63,9 @@ public @interface IListener {
      * @return Kafka配置
      */
     KafkaConfig kafkaConfig() default @KafkaConfig;
+
+    /**
+     * Redis配置
+     */
+    RedisConfig redisConfig() default @RedisConfig;
 } 
