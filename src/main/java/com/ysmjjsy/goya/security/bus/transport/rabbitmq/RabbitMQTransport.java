@@ -53,12 +53,13 @@ public class RabbitMQTransport implements MessageTransport {
     private final MessageSerializer messageSerializer;
 
     public RabbitMQTransport(RabbitTemplate rabbitTemplate,
+                             RabbitAdmin rabbitAdmin,
                              ConnectionFactory connectionFactory,
                              RoutingStrategy routingStrategy,
                              MessageSerializer messageSerializer) {
         this.rabbitTemplate = rabbitTemplate;
+        this.rabbitAdmin = rabbitAdmin;
         this.connectionFactory = connectionFactory;
-        this.rabbitAdmin = new RabbitAdmin(connectionFactory);
         this.routingStrategy = routingStrategy;
         this.messageSerializer = messageSerializer;
         // 初始化Exchange

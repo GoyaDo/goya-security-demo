@@ -3,8 +3,8 @@ package com.ysmjjsy.goya.security.bus.configuration;
 import cn.hutool.extra.spring.SpringUtil;
 import com.ysmjjsy.goya.security.bus.api.IEventBus;
 import com.ysmjjsy.goya.security.bus.configuration.properties.BusProperties;
-import com.ysmjjsy.goya.security.bus.core.DefaultEventBus;
 import com.ysmjjsy.goya.security.bus.context.EventListenerBeanPostProcessor;
+import com.ysmjjsy.goya.security.bus.core.DefaultEventBus;
 import com.ysmjjsy.goya.security.bus.core.LocalEventBus;
 import com.ysmjjsy.goya.security.bus.decision.DefaultMessageConfigDecisionEngine;
 import com.ysmjjsy.goya.security.bus.decision.MessageConfigDecision;
@@ -15,6 +15,7 @@ import com.ysmjjsy.goya.security.bus.route.RoutingStrategyManager;
 import com.ysmjjsy.goya.security.bus.serializer.JsonMessageSerializer;
 import com.ysmjjsy.goya.security.bus.serializer.MessageSerializer;
 import com.ysmjjsy.goya.security.bus.store.EventStore;
+import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMQInfoManager;
 import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMQRoutingStrategy;
 import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMQTransport;
 import com.ysmjjsy.goya.security.bus.transport.redis.RedisMessageDeduplicator;
@@ -23,6 +24,7 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -186,12 +188,26 @@ public class BusConfiguration {
         }
 
         @Bean
+        @ConditionalOnMissingBean
+        public RabbitAdmin rabbitAdmin(ConnectionFactory connectionFactory) {
+            return new RabbitAdmin(connectionFactory);
+        }
+
+        @Bean
         public RabbitMQTransport rabbitMQTransport(RabbitTemplate rabbitTemplate,
+                                                   RabbitAdmin rabbitAdmin,
                                                    ConnectionFactory connectionFactory,
                                                    @Qualifier("rabbitMQRoutingStrategy") RoutingStrategy routingStrategy,
                                                    MessageSerializer messageSerializer
         ) {
-            return new RabbitMQTransport(rabbitTemplate, connectionFactory, routingStrategy, messageSerializer);
+            return new RabbitMQTransport(rabbitTemplate, rabbitAdmin, connectionFactory, routingStrategy, messageSerializer);
+        }
+
+
+        @Bean
+        @ConditionalOnMissingBean
+        public RabbitMQInfoManager rabbitMQInfoManager(RabbitAdmin rabbitAdmin) {
+            return new RabbitMQInfoManager(rabbitAdmin);
         }
 
         @Bean
