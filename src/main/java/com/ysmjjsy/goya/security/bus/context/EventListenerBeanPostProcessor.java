@@ -95,7 +95,7 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
             localEventBus.registerListener(eventKey, wrapper);
 
             // 注册到远程传输层（如果需要）
-            registerToRemoteTransport(annotation, eventKey, wrapper);
+            registerToRemoteTransport(annotation, eventKey, wrapper, getEventClass(method));
 
             log.info("Registered method-level listener: {}.{} for event type: {}", beanName, method.getName(), eventKey);
 
@@ -119,6 +119,15 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
             return extractEventTypeFromClass(paramTypes[0]);
         }
 
+        return null;
+    }
+
+    private Class<? extends IEvent> getEventClass(Method method) {
+        // 从方法参数推断
+        Class<?>[] paramTypes = method.getParameterTypes();
+        if (paramTypes.length > 0 && IEvent.class.isAssignableFrom(paramTypes[0])) {
+            return (Class<? extends IEvent>) paramTypes[0];
+        }
         return null;
     }
 
@@ -157,17 +166,17 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
      * 注册到远程传输层
      */
     private void registerToRemoteTransport(IListener annotation, String eventKey,
-                                           IEventListener<? extends IEvent> listener) {
+                                           IEventListener<? extends IEvent> listener, Class<? extends IEvent> event) {
         try {
 
             // 获取对应的传输层
             MessageTransport transport = getTransportForSubscription(annotation);
 
             // 构建订阅配置
-            SubscriptionConfig config = buildSubscriptionConfig(annotation, eventKey,transport);
+            SubscriptionConfig config = buildSubscriptionConfig(annotation, eventKey, transport,event);
 
             // 创建消息消费者包装器
-            MessageConsumer consumer = new MessageConsumerWrapper(listener, eventKey);
+            MessageConsumer consumer = new MessageConsumerWrapper(listener, eventKey, event);
             if (transport != null && transport.isHealthy()) {
                 // 订阅到远程传输层
                 transport.subscribe(config, consumer);
@@ -191,11 +200,12 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
     /**
      * 构建订阅配置
      */
-    private SubscriptionConfig buildSubscriptionConfig(IListener annotation, String eventKey, MessageTransport transport) {
+    private SubscriptionConfig buildSubscriptionConfig(IListener annotation, String eventKey, MessageTransport transport, Class<? extends IEvent> event) {
         SubscriptionConfig config = SubscriptionConfig.builder()
                 .eventModel(annotation.messageModel())
                 .eventKey(eventKey)
                 .transportType(annotation.transportType())
+                .eventClass(event.getSimpleName())
                 .build();
 
         RoutingStrategy routingStrategy = routingStrategyManager.selectStrategy(annotation.transportType());
@@ -205,13 +215,13 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
         config.setRoutingContext(routingContext);
 
         TransportType transportType = annotation.transportType();
-        Map<String,Object> properties;
+        Map<String, Object> properties;
         switch (transportType) {
             case KAFKA:
-                properties  = transport.buildSubscriptionProperties(annotation.kafkaConfig());
+                properties = transport.buildSubscriptionProperties(annotation.kafkaConfig());
                 break;
             case RABBITMQ:
-                properties  = transport.buildSubscriptionProperties(annotation.rabbitConfig());
+                properties = transport.buildSubscriptionProperties(annotation.rabbitConfig());
                 break;
             default:
                 properties = new HashMap<>();
@@ -268,12 +278,14 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
         private final IEventListener<IEvent> listener;
         private final String eventKey;
         private final MessageSerializer messageSerializer;
+        private final Class<? extends IEvent> eventClass;
 
         @SuppressWarnings("unchecked")
-        public MessageConsumerWrapper(IEventListener<? extends IEvent> listener, String eventKey) {
+        public MessageConsumerWrapper(IEventListener<? extends IEvent> listener, String eventKey, Class<? extends IEvent> eventClass) {
             this.listener = (IEventListener<IEvent>) listener;
             this.eventKey = eventKey;
             this.messageSerializer = new JsonMessageSerializer();
+            this.eventClass = eventClass;
         }
 
         @Override
@@ -300,13 +312,8 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
                 // 如果有具体的事件类名，尝试反序列化为具体类型
                 if (eventClassName != null) {
                     try {
-                        Class<?> eventClass = Class.forName(eventClassName);
-                        if (IEvent.class.isAssignableFrom(eventClass)) {
-                            @SuppressWarnings("unchecked")
-                            Class<? extends IEvent> typedEventClass = (Class<? extends IEvent>) eventClass;
-                            return messageSerializer.deserialize(message.getBody(), typedEventClass);
-                        }
-                    } catch (ClassNotFoundException e) {
+                        return messageSerializer.deserialize(message.getBody(), eventClass);
+                    } catch (Exception e) {
                         log.warn("Event class not found: {}, falling back to generic wrapper", eventClassName);
                     }
                 }

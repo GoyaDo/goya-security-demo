@@ -37,6 +37,11 @@ public class SubscriptionConfig {
     private TransportType transportType;
 
     /**
+     * 事件类
+     */
+    private String eventClass;
+
+    /**
      * 队列最大消息数
      */
     @Builder.Default

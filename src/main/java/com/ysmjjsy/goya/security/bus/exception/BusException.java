@@ -1,4 +1,4 @@
-package com.ysmjjsy.goya.security.bus;
+package com.ysmjjsy.goya.security.bus.exception;
 
 /**
  * <p></p>

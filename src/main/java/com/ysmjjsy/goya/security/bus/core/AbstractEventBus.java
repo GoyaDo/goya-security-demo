@@ -1,6 +1,6 @@
 package com.ysmjjsy.goya.security.bus.core;
 
-import com.ysmjjsy.goya.security.bus.BusException;
+import com.ysmjjsy.goya.security.bus.exception.BusException;
 import com.ysmjjsy.goya.security.bus.api.IEvent;
 import com.ysmjjsy.goya.security.bus.api.IEventBus;
 import com.ysmjjsy.goya.security.bus.api.PublishResult;

@@ -2,9 +2,9 @@ package com.ysmjjsy.goya.security.bus.transport.rabbitmq;
 
 import cn.hutool.core.map.MapUtil;
 import com.rabbitmq.client.Channel;
-import com.ysmjjsy.goya.security.bus.BusException;
 import com.ysmjjsy.goya.security.bus.annotation.RabbitConfig;
 import com.ysmjjsy.goya.security.bus.enums.*;
+import com.ysmjjsy.goya.security.bus.exception.BusException;
 import com.ysmjjsy.goya.security.bus.route.RoutingContext;
 import com.ysmjjsy.goya.security.bus.route.RoutingStrategy;
 import com.ysmjjsy.goya.security.bus.serializer.MessageSerializer;
@@ -616,7 +616,7 @@ public class RabbitMQTransport implements MessageTransport {
                 String messageId = props.getMessageId();
 
                 // 获取重试次数
-                Integer retryCount = getRetryCount(props, retryTimes);
+                Integer retryCount = getRetryCount(props);
                 int maxRetries = Objects.nonNull(retryTimes) ? retryTimes : 3;
 
                 if (retryCount < maxRetries) {
@@ -794,7 +794,7 @@ public class RabbitMQTransport implements MessageTransport {
         /**
          * 获取消息重试次数
          */
-        private Integer getRetryCount(MessageProperties props, Integer retryTimes) {
+        private Integer getRetryCount(MessageProperties props) {
             Object retryCountObj = props.getHeaders().get("x-retry-count");
             if (retryCountObj instanceof Integer) {
                 return (Integer) retryCountObj;
