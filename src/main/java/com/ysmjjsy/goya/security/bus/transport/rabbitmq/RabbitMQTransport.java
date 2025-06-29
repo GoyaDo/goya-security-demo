@@ -2,11 +2,9 @@ package com.ysmjjsy.goya.security.bus.transport.rabbitmq;
 
 import cn.hutool.core.map.MapUtil;
 import com.rabbitmq.client.Channel;
+import com.ysmjjsy.goya.security.bus.BusException;
 import com.ysmjjsy.goya.security.bus.annotation.RabbitConfig;
-import com.ysmjjsy.goya.security.bus.enums.EventCapability;
-import com.ysmjjsy.goya.security.bus.enums.EventModel;
-import com.ysmjjsy.goya.security.bus.enums.EventStatus;
-import com.ysmjjsy.goya.security.bus.enums.TransportType;
+import com.ysmjjsy.goya.security.bus.enums.*;
 import com.ysmjjsy.goya.security.bus.route.RoutingContext;
 import com.ysmjjsy.goya.security.bus.route.RoutingStrategy;
 import com.ysmjjsy.goya.security.bus.serializer.MessageSerializer;
@@ -579,15 +577,18 @@ public class RabbitMQTransport implements MessageTransport {
             String messageId = message.getMessageProperties().getMessageId();
             long deliveryTag = message.getMessageProperties().getDeliveryTag();
 
+            TransportEvent transportEvent = buildTransportMessage(message);
             try {
                 log.debug("Received message from RabbitMQ: {}", messageId);
 
                 // 构建TransportMessage
-                TransportEvent transportEvent = buildTransportMessage(message);
                 transportEvent.setEventStatus(EventStatus.SUCCESS);
 
                 // 调用消费者处理消息
-                consumer.consume(transportEvent);
+                ConsumeResult consume = consumer.consume(transportEvent);
+                if (!ConsumeResult.SUCCESS.equals(consume)) {
+                    throw new BusException("RabbitMQ transport consume failed");
+                }
 
                 // 手动确认消息
                 channel.basicAck(deliveryTag, false);

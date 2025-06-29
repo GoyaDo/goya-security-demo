@@ -24,11 +24,8 @@ public class UserEventListener {
     public ConsumeResult handleUserCreated(UserCreatedEvent event) {
         try {
             log.info("Processing user created event: {}", event);
-            // 模拟业务处理
-            Thread.sleep(100);
-
-            log.info("User created event processed successfully: {}", event.getEventId());
-            return ConsumeResult.SUCCESS;
+            return ConsumeResult.RETRY;
+//            return ConsumeResult.SUCCESS;
 
         } catch (Exception e) {
             log.error("Failed to process user created event: {}", event.getEventId(), e);
