@@ -97,25 +97,5 @@ public class BusProperties {
          * 是否启用RabbitMQ传输
          */
         private boolean enabled = false;
-
-        /**
-         * 队列最大优先级
-         */
-        private int maxPriority;
-
-        /**
-         * 是否持久化(队列)
-         */
-        boolean queueDurable;
-
-        /**
-         * 是否持久化(交换机)
-         */
-        boolean exchangeDurable;
-
-        /**
-         * 若没有队列绑定时是否自动删除
-         */
-        boolean exchangeAutoDelete;
     }
 } 

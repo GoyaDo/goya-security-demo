@@ -29,7 +29,11 @@ import java.util.concurrent.CompletableFuture;
  * <p>
  * 实现 IEventBus 接口，提供消息发布的核心功能
  * 集成智能决策引擎，支持多种传输层和路由策略
- *
+ * <p>
+ * TODO
+ * 1. 发布时一些特定参数底层适配需要优化
+ * 2. 发布时需要查看监听器是否存在
+ * 3. 异常逻辑
  * @author goya
  * @since 2025/6/24
  */
@@ -139,7 +143,7 @@ public abstract class AbstractEventBus implements IEventBus {
         byte[] body = messageSerializer.serialize(event);
 
         // 处理加密
-        if (decision.getEnableEncryption()) {
+        if (Boolean.TRUE.equals(decision.getEnableEncryption())) {
             try {
                 MessageEncryptor encryptor = new MessageEncryptor();
                 MessageEncryptor.EncryptionResult encryptionResult =

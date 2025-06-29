@@ -2,8 +2,12 @@ package com.ysmjjsy.goya.security.bus.spi;
 
 import com.ysmjjsy.goya.security.bus.enums.EventModel;
 import com.ysmjjsy.goya.security.bus.enums.TransportType;
+import com.ysmjjsy.goya.security.bus.route.RoutingContext;
 import lombok.Builder;
 import lombok.Data;
+import lombok.experimental.SuperBuilder;
+
+import java.util.Map;
 
 /**
  * 订阅配置
@@ -12,13 +16,13 @@ import lombok.Data;
  * @since 2025/6/24
  */
 @Data
-@Builder
+@SuperBuilder
 public class SubscriptionConfig {
 
     /**
      * 消息模型
      */
-    private EventModel messageModel;
+    private EventModel eventModel;
 
     /**
      * 监听的事件类型列表
@@ -33,55 +37,16 @@ public class SubscriptionConfig {
     private TransportType transportType;
 
     /**
-     * 消息过期时间（秒）
+     * 队列最大消息数
      */
     @Builder.Default
-    private long ttl = 0L;
+    private int maxMessageSize = 1024 * 1024;
 
     /**
-     * 并发线程数
+     * 队列最大字节数
      */
     @Builder.Default
-    private Integer concurrency = 1;
-
-    /**
-     * 批量大小
-     */
-    @Builder.Default
-    private Integer batchSize = 1;
-
-    /**
-     * 是否顺序消费
-     */
-    @Builder.Default
-    private Boolean orderly = false;
-
-    /**
-     * 消息选择器
-     */
-    private String selector;
-
-    /**
-     * 客户端过滤条件
-     * Spring Expression Language (SpEL) 表达式
-     * 只有当表达式评估为true时，消息才会被 onEvent 方法处理
-     * 事件对象可在表达式中通过 #event 引用
-     * <p>
-     * 示例: "#event.payload.amount > 1000"
-     */
-    private String condition;
-
-    /**
-     * 消费超时时间（毫秒）
-     */
-    @Builder.Default
-    private Long consumeTimeout = 15000L;
-
-    /**
-     * 最大重试次数
-     */
-    @Builder.Default
-    private Integer maxRetryTimes = 3;
+    private int maxMessageBytes = 1024 * 1024;
 
     /**
      * 是否启用
@@ -90,7 +55,12 @@ public class SubscriptionConfig {
     private Boolean enabled = true;
 
     /**
-     * 描述信息
+     * 路由上下文
      */
-    private String description;
-} 
+    private RoutingContext routingContext;
+
+    /**
+     * 属性
+     */
+    private Map<String,Object> properties;
+}

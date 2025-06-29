@@ -20,6 +20,13 @@ import java.lang.annotation.*;
 public @interface IListener {
 
     /**
+     * 是否启用
+     *
+     * @return 是否启用
+     */
+    boolean enabled() default true;
+
+    /**
      * 消息模型
      *
      * @return 消息模型
@@ -42,23 +49,18 @@ public @interface IListener {
      */
     TransportType transportType() default TransportType.LOCAL;
 
-    /**
-     * 消息过期时间（秒）
-     * @return 每条消息的最大存活时间
-     */
-    long ttl() default 0;
 
     /**
-     * 队列最大消息数
-     * @return 队列最大消息数
+     * RabbitMQ配置
+     *
+     * @return RabbitMQ配置
      */
-    long maxMessageSize() default 1024 * 1024;
+    RabbitConfig rabbitConfig() default @RabbitConfig;
 
     /**
-     * 队列最大字节数
-     * @return 队列最大字节数
+     * Kafka配置
+     *
+     * @return Kafka配置
      */
-    long maxMessageBytes() default 1024 * 1024;
-
-    boolean enabled() default true;
+    KafkaConfig kafkaConfig() default @KafkaConfig;
 } 

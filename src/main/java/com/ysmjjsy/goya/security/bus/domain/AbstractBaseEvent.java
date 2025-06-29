@@ -24,12 +24,12 @@ public abstract class AbstractBaseEvent implements IEvent {
     /**
      * 事件ID - 全局唯一标识符
      */
-    protected final String eventId;
+    protected String eventId;
 
     /**
      * 事件类型
      */
-    protected final String eventKey;
+    protected String eventKey;
 
     /**
      * 事件创建时间

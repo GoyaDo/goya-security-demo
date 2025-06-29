@@ -1,6 +1,8 @@
 package com.ysmjjsy.goya.security.bus.transport.rabbitmq;
 
+import cn.hutool.core.map.MapUtil;
 import com.rabbitmq.client.Channel;
+import com.ysmjjsy.goya.security.bus.annotation.RabbitConfig;
 import com.ysmjjsy.goya.security.bus.enums.EventCapability;
 import com.ysmjjsy.goya.security.bus.enums.EventModel;
 import com.ysmjjsy.goya.security.bus.enums.EventStatus;
@@ -21,6 +23,9 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.rabbit.listener.SimpleMessageListenerContainer;
 import org.springframework.amqp.rabbit.listener.api.ChannelAwareMessageListener;
 
+import java.lang.annotation.Annotation;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -258,22 +263,43 @@ public class RabbitMQTransport implements MessageTransport {
     public void subscribe(SubscriptionConfig config, MessageConsumer consumer) {
         try {
             // 解析消息模型
-            EventModel messageModel = config.getMessageModel();
+            EventModel messageModel = config.getEventModel();
 
+            Map<String, Object> properties = config.getProperties();
+            boolean exchangeDurable = true;
+            boolean exchangeAutoDelete = true;
+            boolean queueDurable = true;
+            boolean queueAutoDelete = true;
+
+
+            if (MapUtil.isNotEmpty(properties)) {
+                exchangeDurable = (boolean) properties.get(RabbitMQConstants.EXCHANGE_DURABLE);
+                exchangeAutoDelete = (boolean) properties.get(RabbitMQConstants.EXCHANGE_AUTO_DELETE);
+                queueDurable = (boolean) properties.get(RabbitMQConstants.QUEUE_DURABLE);
+                queueAutoDelete = (boolean) properties.get(RabbitMQConstants.QUEUE_AUTO_DELETE);
+            }
+
+            String exchangeName = config.getRoutingContext().getBusinessDomain();
+            String queueName = config.getRoutingContext().getConsumerGroup();
+            String routingKey = config.getRoutingContext().getRoutingSelector();
+
+            AbstractExchange exchange;
             // 根据消息模型创建订阅
             switch (messageModel) {
-                case QUEUE:
-                    subscribeToQueue(config, consumer);
-                    break;
                 case TOPIC:
-                    subscribeToTopic(config, consumer);
+                    exchange = createTopicExchange(exchangeName, exchangeDurable, exchangeAutoDelete);
                     break;
                 case BROADCAST:
-                    subscribeToBroadcast(config, consumer);
+                    exchange = createBroadExchange(exchangeName, exchangeDurable, exchangeAutoDelete);
+                    routingKey = "";
                     break;
+                case QUEUE:
                 default:
-                    subscribeToQueue(config, consumer);
+                    exchange = createQueueExchange(exchangeName, exchangeDurable, exchangeAutoDelete);
+                    break;
             }
+
+            subscribeToQueue(exchange, consumer, queueName, routingKey, queueDurable, queueAutoDelete, properties);
 
         } catch (Exception e) {
             log.error("Failed to subscribe to RabbitMQ with config: {}", config, e);
@@ -281,196 +307,131 @@ public class RabbitMQTransport implements MessageTransport {
         }
     }
 
+    private DirectExchange createQueueExchange(String exchangeName, boolean exchangeDurable, boolean exchangeAutoDelete) {
+        // 声明Exchange
+        DirectExchange exchange = new DirectExchange(exchangeName, exchangeDurable, exchangeAutoDelete);
+        rabbitAdmin.declareExchange(exchange);
+
+        return exchange;
+    }
+
+    private TopicExchange createTopicExchange(String exchangeName, boolean exchangeDurable, boolean exchangeAutoDelete) {
+        // 声明Exchange
+        TopicExchange exchange = new TopicExchange(exchangeName, exchangeDurable, exchangeAutoDelete);
+        rabbitAdmin.declareExchange(exchange);
+        return exchange;
+    }
+
+    private FanoutExchange createBroadExchange(String exchangeName, boolean exchangeDurable, boolean exchangeAutoDelete) {
+        // 声明Exchange
+        FanoutExchange exchange = new FanoutExchange(exchangeName, exchangeDurable, exchangeAutoDelete);
+        rabbitAdmin.declareExchange(exchange);
+        return exchange;
+    }
+
     /**
      * 订阅队列模式（Direct Exchange）
      */
-    private void subscribeToQueue(SubscriptionConfig config, MessageConsumer consumer) {
+    private void subscribeToQueue(AbstractExchange exchange,
+                                  MessageConsumer consumer,
+                                  String queueName,
+                                  String routingKey,
+                                  boolean queueDurable,
+                                  boolean queueAutoDelete,
+                                  Map<String, Object> properties) {
         try {
-            // 使用路由策略管理器构建订阅路由上下文
-            RoutingContext routingContext = routingStrategy.buildSubscriptionContext(config);
 
-            // 使用新的路由系统
-            String exchangeName = routingContext.getBusinessDomain();
-            String queueName = routingContext.getConsumerGroup();
-            String routingKey = routingContext.getRoutingSelector();
-
-            log.debug("Using routing context for subscription: exchange={}, queue={}, routingKey={}",
-                    exchangeName, queueName, routingKey);
-
-
-            String subscriptionId = exchangeName + "_" + queueName;
+            String subscriptionId = queueName + "_" + routingKey;
 
             // 确保队列和绑定存在
-            ensureQueueBinding(exchangeName, queueName, routingKey, EventModel.QUEUE);
+            ensureQueueBinding(exchange, queueName, routingKey, queueDurable, queueAutoDelete, properties);
 
+            Integer concurrency = 1;
+            if (MapUtil.isNotEmpty(properties)) {
+                concurrency = (Integer) properties.get(RabbitMQConstants.CONCURRENT_CONSUMERS);
+            }
             // 创建监听器容器
-            createListenerContainer(subscriptionId, queueName, config, consumer);
+            createListenerContainer(subscriptionId, queueName, concurrency, consumer);
 
             log.info("Subscribed to queue: exchange={}, queue={}, routingKey={}",
-                    exchangeName, queueName, routingKey);
+                    exchange.getName(), queueName, routingKey);
 
         } catch (Exception e) {
-            log.error("Failed to subscribe to queue with config: {}", config, e);
             throw new RuntimeException("Failed to subscribe to queue", e);
-        }
-    }
-
-    /**
-     * 订阅主题模式（Topic Exchange）
-     */
-    private void subscribeToTopic(SubscriptionConfig config, MessageConsumer consumer) {
-        try {
-            // 使用路由策略管理器构建订阅路由上下文
-            RoutingContext routingContext = routingStrategy.buildSubscriptionContext(config);
-
-            // 使用新的路由系统
-            String exchangeName = routingContext.getBusinessDomain();
-            String queueName = routingContext.getConsumerGroup();
-            String routingKey = routingContext.getRoutingSelector();
-
-            log.debug("Using routing context for topic subscription: exchange={}, queue={}, routingKey={}",
-                    exchangeName, queueName, routingKey);
-
-
-            String subscriptionId = exchangeName + "_" + queueName;
-
-            // 确保队列和绑定存在
-            ensureTopicBinding(exchangeName, queueName, routingKey);
-
-            // 创建监听器容器
-            createListenerContainer(subscriptionId, queueName, config, consumer);
-
-            log.info("Subscribed to topic: exchange={}, queue={}, routingKey={}",
-                    exchangeName, queueName, routingKey);
-
-        } catch (Exception e) {
-            log.error("Failed to subscribe to topic with config: {}", config, e);
-            throw new RuntimeException("Failed to subscribe to topic", e);
-        }
-    }
-
-    /**
-     * 订阅广播模式（Fanout Exchange）
-     */
-    private void subscribeToBroadcast(SubscriptionConfig config, MessageConsumer consumer) {
-        try {
-            // 使用路由策略管理器构建订阅路由上下文
-            RoutingContext routingContext = routingStrategy.buildSubscriptionContext(config);
-
-            // 使用新的路由系统
-            String exchangeName = routingContext.getBusinessDomain();
-            String queueName = routingContext.getConsumerGroup();
-
-            log.debug("Using routing context for broadcast subscription: exchange={}, queue={}",
-                    exchangeName, queueName);
-
-            String subscriptionId = exchangeName + "_" + queueName;
-
-            // 确保队列和绑定存在
-            ensureBroadcastBinding(exchangeName, queueName);
-
-            // 创建监听器容器
-            createListenerContainer(subscriptionId, queueName, config, consumer);
-
-            log.info("Subscribed to broadcast: exchange={}, queue={}",
-                    exchangeName, queueName);
-
-        } catch (Exception e) {
-            log.error("Failed to subscribe to broadcast with config: {}", config, e);
-            throw new RuntimeException("Failed to subscribe to broadcast", e);
         }
     }
 
     /**
      * 确保队列绑定（Direct Exchange）
      */
-    private void ensureQueueBinding(String exchangeName, String queueName, String routingKey, EventModel messageModel) {
+    private void ensureQueueBinding(AbstractExchange exchange,
+                                    String queueName,
+                                    String routingKey,
+                                    boolean queueDurable,
+                                    boolean queueAutoDelete,
+                                    Map<String, Object> properties) {
         try {
-
-            // 声明Exchange
-            DirectExchange exchange = new DirectExchange(exchangeName, true, false);
-            rabbitAdmin.declareExchange(exchange);
-
             // 声明队列
-            Queue queue = QueueBuilder.durable(queueName).build();
+            QueueBuilder queueBuilder;
+            if (queueDurable) {
+                queueBuilder = QueueBuilder.durable(queueName);
+            } else {
+                queueBuilder = QueueBuilder.nonDurable(queueName);
+            }
+            if (queueAutoDelete) {
+                queueBuilder.autoDelete();
+            }
+
+            if (MapUtil.isNotEmpty(properties)) {
+                queueBuilder.withArguments(properties);
+            }
+
+            Queue queue = queueBuilder.build();
             rabbitAdmin.declareQueue(queue);
 
             // 绑定队列到Exchange
             Binding binding = BindingBuilder.bind(queue)
                     .to(exchange)
-                    .with(routingKey);
+                    .with(routingKey).noargs();
             rabbitAdmin.declareBinding(binding);
 
-            log.debug("Ensured queue binding: queue={}, exchange={}, routingKey={}",
-                    queueName, exchangeName, routingKey);
-
         } catch (Exception e) {
-            log.error("Failed to ensure queue binding: exchange={}, queue={}, routingKey={}",
-                    exchangeName, queueName, routingKey, e);
             throw new RuntimeException("Failed to ensure queue binding", e);
         }
     }
 
-    /**
-     * 确保主题绑定（Topic Exchange）
-     */
-    private void ensureTopicBinding(String exchangeName, String queueName, String routingKey) {
-        try {
-            log.debug("ensureTopicBinding called with: exchange={}, queue={}, routingKey={}",
-                    exchangeName, queueName, routingKey);
-
-            // 声明Exchange
-            TopicExchange exchange = new TopicExchange(exchangeName, true, false);
-            rabbitAdmin.declareExchange(exchange);
-
-            // 声明队列
-            Queue queue = QueueBuilder.durable(queueName).build();
-            rabbitAdmin.declareQueue(queue);
-
-            // 绑定队列到Topic Exchange
-            Binding binding = BindingBuilder.bind(queue)
-                    .to(exchange)
-                    .with(routingKey);
-            rabbitAdmin.declareBinding(binding);
-
-            log.debug("Ensured topic binding: queue={}, exchange={}, routingKey={}",
-                    queueName, exchangeName, routingKey);
-
-        } catch (Exception e) {
-            log.error("Failed to ensure topic binding: exchange={}, queue={}, routingKey={}",
-                    exchangeName, queueName, routingKey, e);
-            throw new RuntimeException("Failed to ensure topic binding", e);
-        }
-    }
 
     /**
-     * 确保广播绑定（Fanout Exchange）
+     * 创建监听器容器
      */
-    private void ensureBroadcastBinding(String exchangeName, String queueName) {
+    private void createListenerContainer(String subscriptionId, String queueName,
+                                         Integer concurrency, MessageConsumer consumer) {
         try {
-            log.debug("ensureBroadcastBinding called with: exchange={}, queue={}",
-                    exchangeName, queueName);
+            // 创建消息监听器容器
+            SimpleMessageListenerContainer container = new SimpleMessageListenerContainer();
+            container.setConnectionFactory(connectionFactory);
+            container.setQueueNames(queueName);
+            container.setConcurrentConsumers(concurrency);
+            container.setMaxConcurrentConsumers(concurrency * 2);
 
-            // 声明Exchange
-            FanoutExchange exchange = new FanoutExchange(exchangeName, true, false);
-            rabbitAdmin.declareExchange(exchange);
+            // 手动确认模式
+            container.setAcknowledgeMode(AcknowledgeMode.MANUAL);
 
-            // 声明队列
-            Queue queue = QueueBuilder.durable(queueName).build();
-            rabbitAdmin.declareQueue(queue);
+            // 创建专门的RabbitMQ事件消息监听器
+            RabbitMQEventMessageListener messageListener = new RabbitMQEventMessageListener(consumer);
+            container.setMessageListener(messageListener);
+            container.start();
 
-            // 绑定到Fanout Exchange（无需路由键）
-            Binding binding = BindingBuilder.bind(queue)
-                    .to(exchange);
-            rabbitAdmin.declareBinding(binding);
+            // 保存订阅信息
+            subscriptions.put(subscriptionId, container);
 
-            log.debug("Ensured broadcast binding: queue={}, exchange={}",
-                    queueName, exchangeName);
+            log.debug("Created listener container: subscriptionId={}, queue={}",
+                    subscriptionId, queueName);
 
         } catch (Exception e) {
-            log.error("Failed to ensure broadcast binding: exchange={}, queue={}",
-                    exchangeName, queueName, e);
-            throw new RuntimeException("Failed to ensure broadcast binding", e);
+            log.error("Failed to create listener container: subscriptionId={}, queue={}",
+                    subscriptionId, queueName, e);
+            throw new RuntimeException("Failed to create listener container", e);
         }
     }
 
@@ -508,42 +469,41 @@ public class RabbitMQTransport implements MessageTransport {
         }
     }
 
-    /**
-     * 创建监听器容器
-     */
-    private void createListenerContainer(String subscriptionId, String queueName,
-                                         SubscriptionConfig config, MessageConsumer consumer) {
-        try {
-            // 创建消息监听器容器
-            SimpleMessageListenerContainer container = new SimpleMessageListenerContainer();
-            container.setConnectionFactory(connectionFactory);
-            container.setQueueNames(queueName);
-            container.setConcurrentConsumers(config.getConcurrency());
-            container.setMaxConcurrentConsumers(config.getConcurrency() * 2);
-            // 手动确认模式
-            container.setAcknowledgeMode(AcknowledgeMode.MANUAL);
-
-            // 创建专门的RabbitMQ事件消息监听器
-            RabbitMQEventMessageListener messageListener = new RabbitMQEventMessageListener(consumer, config);
-            container.setMessageListener(messageListener);
-            container.start();
-
-            // 保存订阅信息
-            subscriptions.put(subscriptionId, container);
-
-            log.debug("Created listener container: subscriptionId={}, queue={}, concurrency={}",
-                    subscriptionId, queueName, config.getConcurrency());
-
-        } catch (Exception e) {
-            log.error("Failed to create listener container: subscriptionId={}, queue={}",
-                    subscriptionId, queueName, e);
-            throw new RuntimeException("Failed to create listener container", e);
-        }
-    }
-
     @Override
     public boolean isHealthy() {
         return healthy && connectionFactory != null;
+    }
+
+    @Override
+    public Map<String, Object> buildSubscriptionProperties(Annotation config) {
+        if (config instanceof RabbitConfig rabbitConfig) {
+            Map<String, Object> properties = new HashMap<>();
+            putProperty(properties, RabbitMQConstants.QUEUE_DURABLE, rabbitConfig.queueDurable());
+            putProperty(properties, RabbitMQConstants.EXCHANGE_DURABLE, rabbitConfig.exchangeDurable());
+            putProperty(properties, RabbitMQConstants.QUEUE_AUTO_DELETE, rabbitConfig.queueAutoDelete());
+            putProperty(properties, RabbitMQConstants.EXCHANGE_AUTO_DELETE, rabbitConfig.exchangeAutoDelete());
+
+            putProperty(properties, RabbitMQConstants.X_MESSAGE_TTL, rabbitConfig.messageTTL());
+            putProperty(properties, RabbitMQConstants.X_EXPIRES, rabbitConfig.expires());
+            putProperty(properties, RabbitMQConstants.X_MAX_LENGTH, rabbitConfig.maxLength());
+            putProperty(properties, RabbitMQConstants.X_MAX_LENGTH_BYTES, rabbitConfig.maxLengthBytes());
+            putProperty(properties, RabbitMQConstants.X_OVERFLOW, rabbitConfig.overflow());
+            putProperty(properties, RabbitMQConstants.X_DEAD_LETTER_EXCHANGE, rabbitConfig.dlx());
+            putProperty(properties, RabbitMQConstants.X_DEAD_LETTER_ROUTING_KEY, rabbitConfig.dlrk());
+            putProperty(properties, RabbitMQConstants.X_MAX_PRIORITY, rabbitConfig.maxPriority());
+            putProperty(properties, RabbitMQConstants.X_QUEUE_MODE, rabbitConfig.lazy());
+            putProperty(properties, RabbitMQConstants.X_QUEUE_MASTER_LOCATION, rabbitConfig.locator());
+            putProperty(properties, RabbitMQConstants.X_SINGLE_ACTIVE_CONSUMER, rabbitConfig.singleActiveConsumer());
+            if (rabbitConfig.quorum()) {
+                putProperty(properties, RabbitMQConstants.X_QUEUE_TYPE, "quorum");
+            }
+            if (rabbitConfig.stream()) {
+                putProperty(properties, RabbitMQConstants.X_QUEUE_TYPE, "stream");
+            }
+            putProperty(properties, RabbitMQConstants.X_DELIVERY_LIMIT, rabbitConfig.deliveryLimit());
+            return properties;
+        }
+        return Collections.emptyMap();
     }
 
     /**
@@ -608,11 +568,9 @@ public class RabbitMQTransport implements MessageTransport {
     private class RabbitMQEventMessageListener implements ChannelAwareMessageListener {
 
         private final MessageConsumer consumer;
-        private final SubscriptionConfig config;
 
-        public RabbitMQEventMessageListener(MessageConsumer consumer, SubscriptionConfig config) {
+        public RabbitMQEventMessageListener(MessageConsumer consumer) {
             this.consumer = consumer;
-            this.config = config;
         }
 
         @Override

@@ -1,7 +1,6 @@
 package com.ysmjjsy.goya.security.bus.route;
 
 import com.ysmjjsy.goya.security.bus.api.IEvent;
-import com.ysmjjsy.goya.security.bus.core.MessageConfigHint;
 import com.ysmjjsy.goya.security.bus.enums.EventModel;
 import com.ysmjjsy.goya.security.bus.enums.TransportType;
 import lombok.RequiredArgsConstructor;
@@ -9,7 +8,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * 路由策略管理器
@@ -45,7 +43,7 @@ public class RoutingStrategyManager {
     /**
      * 选择发送策略
      */
-    private RoutingStrategy selectStrategy(TransportType transportType) {
+    public RoutingStrategy selectStrategy(TransportType transportType) {
 
         if (transportType == null) {
             return strategyCache.get("defaultRoutingStrategy");

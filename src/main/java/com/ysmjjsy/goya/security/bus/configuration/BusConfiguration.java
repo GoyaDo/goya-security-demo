@@ -61,12 +61,13 @@ public class BusConfiguration {
     }
 
     @Bean
-    public EventListenerBeanPostProcessor eventListenerBeanPostProcessor(IEventBus iEventBus,
-                                                                         BusProperties properties,
-                                                                         LocalEventBus localEventBus,
-                                                                         MessageConfigDecision messageConfigDecision
+    public EventListenerBeanPostProcessor eventListenerBeanPostProcessor(
+            BusProperties properties,
+            LocalEventBus localEventBus,
+            MessageConfigDecision messageConfigDecision,
+            RoutingStrategyManager routingStrategyManager
     ) {
-        return new EventListenerBeanPostProcessor(iEventBus, properties, localEventBus, messageConfigDecision);
+        return new EventListenerBeanPostProcessor(properties, localEventBus, messageConfigDecision, routingStrategyManager);
     }
 
     @Bean

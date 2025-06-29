@@ -8,11 +8,13 @@ import com.ysmjjsy.goya.security.bus.spi.SubscriptionConfig;
 import com.ysmjjsy.goya.security.bus.spi.TransportEvent;
 import com.ysmjjsy.goya.security.bus.spi.TransportResult;
 
+import java.lang.annotation.Annotation;
+import java.util.Map;
 import java.util.Set;
 
 /**
  * 消息传输层 SPI 接口
- * 
+ * <p>
  * 定义了统一的传输层抽象，支持不同 MQ 产品的接入
  * 实现类需要注册为 Spring Bean，框架会自动发现并管理
  *
@@ -57,4 +59,19 @@ public interface MessageTransport {
      * @return true表示健康，false表示不健康
      */
     boolean isHealthy();
-} 
+
+    /**
+     * 构建订阅属性
+     *
+     * @param config 订阅配置
+     * @return 订阅属性
+     */
+    Map<String, Object> buildSubscriptionProperties(Annotation config);
+
+
+    default void putProperty(Map<String, Object> properties, String key, Object value) {
+        if (value !=null){
+            properties.put(key, value);
+        }
+    }
+}

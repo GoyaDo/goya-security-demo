@@ -24,13 +24,13 @@ public abstract class AbstractRoutingStrategy implements RoutingStrategy {
 
     @Override
     public RoutingContext buildSendingContext(IEvent event, EventModel eventModel) {
-        return determineRoutingContext(event.getEventKey(),eventModel);
+        return determineRoutingContext(event.getEventKey(), eventModel);
     }
 
     @Override
     public RoutingContext buildSubscriptionContext(SubscriptionConfig config) {
         // 确定业务域
-        return determineRoutingContext(config.getEventKey(),config.getMessageModel());
+        return determineRoutingContext(config.getEventKey(), config.getEventModel());
     }
 
     /**
@@ -39,9 +39,10 @@ public abstract class AbstractRoutingStrategy implements RoutingStrategy {
     private RoutingContext determineRoutingContext(String eventKey, EventModel eventModel) {
         final String applicationName = PropertyResolver.getApplicationName(applicationContext.getEnvironment());
         final String busPrefix = busProperties.getBusPrefix();
-        final String businessDomain = applicationName + "." + busPrefix + "-" + eventKey;
+        final String prefix = applicationName + "." + busPrefix;
+        final String businessDomain = prefix + "-" + eventKey;
 
-        String consumerGroup = "queue-" + eventKey;
+        String consumerGroup = prefix + ".queue-" + eventKey;
         return RoutingContext.builder()
                 .businessDomain(businessDomain)
                 .eventKey(eventKey)

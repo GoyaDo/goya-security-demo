@@ -1,8 +1,8 @@
 package com.ysmjjsy.goya.security.bus.context;
 
+import cn.hutool.core.map.MapUtil;
 import com.ysmjjsy.goya.security.bus.annotation.IListener;
 import com.ysmjjsy.goya.security.bus.api.IEvent;
-import com.ysmjjsy.goya.security.bus.api.IEventBus;
 import com.ysmjjsy.goya.security.bus.api.IEventListener;
 import com.ysmjjsy.goya.security.bus.configuration.properties.BusProperties;
 import com.ysmjjsy.goya.security.bus.core.LocalEventBus;
@@ -10,6 +10,9 @@ import com.ysmjjsy.goya.security.bus.decision.MessageConfigDecision;
 import com.ysmjjsy.goya.security.bus.enums.ConsumeResult;
 import com.ysmjjsy.goya.security.bus.enums.EventStatus;
 import com.ysmjjsy.goya.security.bus.enums.TransportType;
+import com.ysmjjsy.goya.security.bus.route.RoutingContext;
+import com.ysmjjsy.goya.security.bus.route.RoutingStrategy;
+import com.ysmjjsy.goya.security.bus.route.RoutingStrategyManager;
 import com.ysmjjsy.goya.security.bus.serializer.JsonMessageSerializer;
 import com.ysmjjsy.goya.security.bus.serializer.MessageSerializer;
 import com.ysmjjsy.goya.security.bus.spi.MessageConsumer;
@@ -25,6 +28,7 @@ import org.springframework.util.StringUtils;
 
 import java.lang.reflect.Method;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -40,10 +44,10 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class EventListenerBeanPostProcessor implements BeanPostProcessor {
 
-    private final IEventBus eventBus;
     private final BusProperties properties;
     private final LocalEventBus localEventBus;
     private final MessageConfigDecision messageConfigDecision;
+    private final RoutingStrategyManager routingStrategyManager;
 
     @Override
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
@@ -156,14 +160,14 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
                                            IEventListener<? extends IEvent> listener) {
         try {
 
+            // 获取对应的传输层
+            MessageTransport transport = getTransportForSubscription(annotation);
+
             // 构建订阅配置
-            SubscriptionConfig config = buildSubscriptionConfig(annotation, eventKey);
+            SubscriptionConfig config = buildSubscriptionConfig(annotation, eventKey,transport);
 
             // 创建消息消费者包装器
             MessageConsumer consumer = new MessageConsumerWrapper(listener, eventKey);
-
-            // 获取对应的传输层
-            MessageTransport transport = getTransportForSubscription(annotation);
             if (transport != null && transport.isHealthy()) {
                 // 订阅到远程传输层
                 transport.subscribe(config, consumer);
@@ -187,13 +191,36 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
     /**
      * 构建订阅配置
      */
-    private SubscriptionConfig buildSubscriptionConfig(IListener annotation, String eventKey) {
+    private SubscriptionConfig buildSubscriptionConfig(IListener annotation, String eventKey, MessageTransport transport) {
         SubscriptionConfig config = SubscriptionConfig.builder()
-                .messageModel(annotation.messageModel())
+                .eventModel(annotation.messageModel())
                 .eventKey(eventKey)
                 .transportType(annotation.transportType())
-                .ttl(annotation.ttl())
                 .build();
+
+        RoutingStrategy routingStrategy = routingStrategyManager.selectStrategy(annotation.transportType());
+
+        // 使用路由策略管理器构建订阅路由上下文
+        RoutingContext routingContext = routingStrategy.buildSubscriptionContext(config);
+        config.setRoutingContext(routingContext);
+
+        TransportType transportType = annotation.transportType();
+        Map<String,Object> properties;
+        switch (transportType) {
+            case KAFKA:
+                properties  = transport.buildSubscriptionProperties(annotation.kafkaConfig());
+                break;
+            case RABBITMQ:
+                properties  = transport.buildSubscriptionProperties(annotation.rabbitConfig());
+                break;
+            default:
+                properties = new HashMap<>();
+                break;
+        }
+
+        if (MapUtil.isNotEmpty(properties)) {
+            config.setProperties(properties);
+        }
 
         log.debug("Built subscription config: {}", config);
         return config;
@@ -203,11 +230,17 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
      * 获取用于订阅的传输层
      */
     private MessageTransport getTransportForSubscription(IListener annotation) {
+
         Map<TransportType, MessageTransport> transports = messageConfigDecision.getRegisteredTransports();
 
         log.debug("Available transports: {}", transports.keySet());
 
-        // 优先使用默认传输层
+        // 优先使用annotation中指定的传输层
+        if (annotation.transportType() != null && transports.containsKey(annotation.transportType())) {
+            return transports.get(annotation.transportType());
+        }
+
+        // 选择默认传输层
         TransportType defaultTransport = properties.getDefaultTransport();
         MessageTransport transport = transports.get(defaultTransport);
 
@@ -292,6 +325,7 @@ public class EventListenerBeanPostProcessor implements BeanPostProcessor {
      * 简单的事件包装器（临时实现）
      */
     private static class SimpleEventWrapper implements IEvent {
+
         private final TransportEvent message;
         private final String eventKey;
 
