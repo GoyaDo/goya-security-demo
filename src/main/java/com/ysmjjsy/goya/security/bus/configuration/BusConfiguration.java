@@ -26,7 +26,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -197,10 +196,9 @@ public class BusConfiguration {
         public RabbitMQTransport rabbitMQTransport(RabbitTemplate rabbitTemplate,
                                                    RabbitAdmin rabbitAdmin,
                                                    ConnectionFactory connectionFactory,
-                                                   @Qualifier("rabbitMQRoutingStrategy") RoutingStrategy routingStrategy,
                                                    MessageSerializer messageSerializer
         ) {
-            return new RabbitMQTransport(rabbitTemplate, rabbitAdmin, connectionFactory, routingStrategy, messageSerializer);
+            return new RabbitMQTransport(rabbitTemplate, rabbitAdmin, connectionFactory, messageSerializer);
         }
 
 

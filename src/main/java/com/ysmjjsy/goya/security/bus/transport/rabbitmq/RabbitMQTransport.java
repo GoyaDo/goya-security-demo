@@ -6,7 +6,6 @@ import com.ysmjjsy.goya.security.bus.annotation.RabbitConfig;
 import com.ysmjjsy.goya.security.bus.enums.*;
 import com.ysmjjsy.goya.security.bus.exception.BusException;
 import com.ysmjjsy.goya.security.bus.route.RoutingContext;
-import com.ysmjjsy.goya.security.bus.route.RoutingStrategy;
 import com.ysmjjsy.goya.security.bus.serializer.MessageSerializer;
 import com.ysmjjsy.goya.security.bus.spi.MessageConsumer;
 import com.ysmjjsy.goya.security.bus.spi.SubscriptionConfig;
@@ -45,18 +44,15 @@ public class RabbitMQTransport implements MessageTransport {
     private final ConnectionFactory connectionFactory;
     private final Map<String, SimpleMessageListenerContainer> subscriptions = new ConcurrentHashMap<>();
     private volatile boolean healthy = true;
-    private final RoutingStrategy routingStrategy;
     private final MessageSerializer messageSerializer;
 
     public RabbitMQTransport(RabbitTemplate rabbitTemplate,
                              RabbitAdmin rabbitAdmin,
                              ConnectionFactory connectionFactory,
-                             RoutingStrategy routingStrategy,
                              MessageSerializer messageSerializer) {
         this.rabbitTemplate = rabbitTemplate;
         this.rabbitAdmin = rabbitAdmin;
         this.connectionFactory = connectionFactory;
-        this.routingStrategy = routingStrategy;
         this.messageSerializer = messageSerializer;
         // 初始化Exchange
         initialize();
