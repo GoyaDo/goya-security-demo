@@ -15,6 +15,7 @@ import com.ysmjjsy.goya.security.bus.spi.TransportResult;
 import com.ysmjjsy.goya.security.bus.transport.MessageTransport;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.*;
+import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -22,10 +23,7 @@ import org.springframework.amqp.rabbit.listener.SimpleMessageListenerContainer;
 import org.springframework.amqp.rabbit.listener.api.ChannelAwareMessageListener;
 
 import java.lang.annotation.Annotation;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -598,7 +596,7 @@ public class RabbitMQTransport implements MessageTransport {
                 log.error("Failed to process message: {}", messageId, e);
 
                 // 处理消息失败
-                handleMessageFailure(message, channel, deliveryTag, e);
+                handleMessageFailure(message, channel, deliveryTag, transportEvent.getRetryTimes(), e);
             }
         }
 
@@ -612,23 +610,24 @@ public class RabbitMQTransport implements MessageTransport {
         /**
          * 处理消息失败
          */
-        private void handleMessageFailure(Message message, Channel channel, long deliveryTag, Exception e) {
+        private void handleMessageFailure(Message message, Channel channel, long deliveryTag, Integer retryTimes, Exception e) {
             try {
                 MessageProperties props = message.getMessageProperties();
                 String messageId = props.getMessageId();
 
                 // 获取重试次数
-                Integer retryCount = getRetryCount(props);
-                int maxRetries = 3; // 可以从配置中获取
+                Integer retryCount = getRetryCount(props, retryTimes);
+                int maxRetries = Objects.nonNull(retryTimes) ? retryTimes : 3;
 
                 if (retryCount < maxRetries) {
-                    // 重试：拒绝消息并重新入队
-                    retryCount++;
-                    props.getHeaders().put("x-retry-count", retryCount);
+                    // 先确认原消息，避免重复处理
+                    channel.basicAck(deliveryTag, false);
 
-                    channel.basicNack(deliveryTag, false, true);
+                    // 重新发送消息进行重试，并更新重试计数
+                    retryMessageWithDelay(message, retryCount + 1, e);
+
                     log.warn("Message processing failed, will retry ({}/{}): {} - {}",
-                            retryCount, maxRetries, messageId, e.getMessage());
+                            retryCount + 1, maxRetries, messageId, e.getMessage());
                 } else {
                     // 超过最大重试次数：拒绝消息且不重新入队（进入死信队列）
                     channel.basicNack(deliveryTag, false, false);
@@ -642,9 +641,160 @@ public class RabbitMQTransport implements MessageTransport {
         }
 
         /**
+         * 重新发送消息进行重试，支持延迟和重试计数
+         */
+        private void retryMessageWithDelay(Message originalMessage, int retryCount, Exception lastException) {
+            try {
+                // 反序列化原始消息
+                TransportEvent transportEvent = messageSerializer.deserialize(originalMessage.getBody(), TransportEvent.class);
+
+                // 计算重试延迟时间（指数退避算法）
+                long delayMs = calculateRetryDelay(retryCount);
+
+                // 获取原始路由信息
+                RoutingContext routingContext = transportEvent.getRoutingContext();
+                String exchangeName = routingContext.getBusinessDomain();
+                String routingKey = routingContext.getRoutingSelector();
+
+                // 重新序列化消息
+                byte[] messageBody = messageSerializer.serialize(transportEvent);
+
+                if (delayMs > 0) {
+                    // 使用延迟发送
+                    sendDelayedRetryMessage(exchangeName, routingKey, messageBody, originalMessage, retryCount, lastException, delayMs);
+                } else {
+                    // 立即重试
+                    sendImmediateRetryMessage(exchangeName, routingKey, messageBody, originalMessage, retryCount, lastException);
+                }
+
+                log.debug("Message requeued for retry with count {}, delay {}ms: {}",
+                        retryCount, delayMs, transportEvent.getEventId());
+
+            } catch (Exception retryException) {
+                log.error("Failed to retry message, original exception: {}, retry exception: {}",
+                        lastException.getMessage(), retryException.getMessage(), retryException);
+            }
+        }
+
+        /**
+         * 发送延迟重试消息
+         */
+        private void sendDelayedRetryMessage(String exchangeName, String routingKey, byte[] messageBody,
+                                             Message originalMessage, int retryCount, Exception lastException, long delayMs) {
+            // 创建延迟队列名称
+            String delayQueueName = String.format("retry-delay-%s-%s-%d", exchangeName, routingKey, delayMs).replaceAll("[^a-zA-Z0-9\\-_.]", "-");
+
+            try {
+                // 确保延迟队列存在
+                ensureDelayQueue(delayQueueName, exchangeName, routingKey, delayMs);
+
+                // 发送到延迟队列
+                rabbitTemplate.convertAndSend(
+                        "", // 使用默认交换机直接发送到队列
+                        delayQueueName,
+                        messageBody,
+                        msg -> {
+                            copyOriginalMessageProperties(msg, originalMessage);
+                            msg.getMessageProperties().getHeaders().put("x-retry-count", retryCount);
+                            msg.getMessageProperties().getHeaders().put("x-last-exception", lastException.getMessage());
+                            msg.getMessageProperties().getHeaders().put("x-retry-timestamp", System.currentTimeMillis());
+                            return msg;
+                        }
+                );
+            } catch (Exception e) {
+                log.warn("Failed to send delayed retry message, falling back to immediate retry: {}", e.getMessage());
+                // 降级为立即重试
+                sendImmediateRetryMessage(exchangeName, routingKey, messageBody, originalMessage, retryCount, lastException);
+            }
+        }
+
+        /**
+         * 发送立即重试消息
+         */
+        private void sendImmediateRetryMessage(String exchangeName, String routingKey, byte[] messageBody,
+                                               Message originalMessage, int retryCount, Exception lastException) {
+            rabbitTemplate.convertAndSend(
+                    exchangeName,
+                    routingKey,
+                    messageBody,
+                    msg -> {
+                        copyOriginalMessageProperties(msg, originalMessage);
+                        msg.getMessageProperties().getHeaders().put("x-retry-count", retryCount);
+                        msg.getMessageProperties().getHeaders().put("x-last-exception", lastException.getMessage());
+                        msg.getMessageProperties().getHeaders().put("x-retry-timestamp", System.currentTimeMillis());
+                        return msg;
+                    }
+            );
+        }
+
+        /**
+         * 确保延迟队列存在
+         */
+        private void ensureDelayQueue(String delayQueueName, String targetExchange, String targetRoutingKey, long delayMs) {
+            try {
+                // 创建延迟队列，设置TTL和死信交换机
+                Map<String, Object> queueArgs = new HashMap<>();
+                queueArgs.put("x-message-ttl", delayMs);
+                queueArgs.put("x-dead-letter-exchange", targetExchange);
+                queueArgs.put("x-dead-letter-routing-key", targetRoutingKey);
+
+                Queue delayQueue = QueueBuilder.durable(delayQueueName)
+                        .withArguments(queueArgs)
+                        .build();
+
+                rabbitAdmin.declareQueue(delayQueue);
+
+            } catch (Exception e) {
+                log.warn("Failed to create delay queue: {}", delayQueueName, e);
+                throw e;
+            }
+        }
+
+        /**
+         * 计算重试延迟时间（指数退避算法）
+         */
+        private long calculateRetryDelay(int retryCount) {
+            // 基础延迟时间：1秒、2秒、4秒
+            long baseDelayMs = 1000L;
+            return baseDelayMs * (1L << (retryCount - 1)); // 2^(retryCount-1) * 1000ms
+        }
+
+        /**
+         * 复制原始消息属性
+         */
+        private void copyOriginalMessageProperties(Message newMessage, Message originalMessage) {
+            MessageProperties newProps = newMessage.getMessageProperties();
+            MessageProperties originalProps = originalMessage.getMessageProperties();
+
+            // 复制基本属性
+            newProps.setMessageId(originalProps.getMessageId());
+            newProps.setTimestamp(originalProps.getTimestamp());
+            newProps.setContentType(originalProps.getContentType());
+            newProps.setContentEncoding(originalProps.getContentEncoding());
+
+            if (originalProps.getPriority() != null) {
+                newProps.setPriority(originalProps.getPriority());
+            }
+
+            if (originalProps.getExpiration() != null) {
+                newProps.setExpiration(originalProps.getExpiration());
+            }
+
+            // 复制用户自定义头部（除了重试相关的）
+            if (originalProps.getHeaders() != null) {
+                originalProps.getHeaders().forEach((key, value) -> {
+                    if (!key.startsWith("x-retry") && !key.startsWith("x-first-death") && !key.startsWith("x-last-exception")) {
+                        newProps.getHeaders().put(key, value);
+                    }
+                });
+            }
+        }
+
+
+        /**
          * 获取消息重试次数
          */
-        private Integer getRetryCount(MessageProperties props) {
+        private Integer getRetryCount(MessageProperties props, Integer retryTimes) {
             Object retryCountObj = props.getHeaders().get("x-retry-count");
             if (retryCountObj instanceof Integer) {
                 return (Integer) retryCountObj;
