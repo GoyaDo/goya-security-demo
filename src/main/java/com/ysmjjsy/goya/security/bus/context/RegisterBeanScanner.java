@@ -62,6 +62,7 @@ public class RegisterBeanScanner {
         pathScanningCandidateComponentProvider.addIncludeFilter(new AnnotationTypeFilter(handlerClass,true));
 
         // 添加排除过滤器：排除框架内部的包装器类
+//        pathScanningCandidateComponentProvider.addExcludeFilter(new AssignableTypeFilter(MethodIEventListenerWrapper.class));
 
         List<BeanDefinition> candidateComponents = new ArrayList<>();
         for (String packageName : scannerPackageNames) {

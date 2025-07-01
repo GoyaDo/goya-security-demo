@@ -34,7 +34,7 @@ public class EventTestController {
         try {
             // 创建用户数据
             UserCreatedEvent userData = new UserCreatedEvent();
-            userData.setEventKey("user.created.default");
+//            userData.setEventKey("user.created.default");
             // 创建事件
             log.info("Publishing user created event: {}", userData.getEventId());
             

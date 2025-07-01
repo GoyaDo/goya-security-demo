@@ -20,12 +20,14 @@ import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMQRoutingStrategy;
 import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMQTransport;
 import com.ysmjjsy.goya.security.bus.transport.redis.RedisMessageDeduplicator;
 import com.ysmjjsy.goya.security.bus.transport.redis.RedisMessageStore;
+import com.ysmjjsy.goya.security.bus.transport.redis.RedisTransport;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -34,6 +36,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.retry.backoff.FixedBackOffPolicy;
 import org.springframework.retry.policy.SimpleRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
@@ -225,6 +230,14 @@ public class BusConfiguration {
         }
 
         @Bean
+        public RedisMessageListenerContainer redisMessageListenerContainer(RedisConnectionFactory connectionFactory) {
+            RedisMessageListenerContainer container = new RedisMessageListenerContainer();
+            container.setConnectionFactory(connectionFactory);
+            log.trace("[Goya] |- Bean [Redis Message Listener Container] Configure.");
+            return container;
+        }
+
+        @Bean
         @ConditionalOnMissingBean
         public EventStore messageStore() {
             return new RedisMessageStore();
@@ -234,6 +247,14 @@ public class BusConfiguration {
         @ConditionalOnMissingBean
         public MessageDeduplicator messageDeduplicator() {
             return new RedisMessageDeduplicator();
+        }
+
+        @Bean
+        public RedisTransport redisEventTransport(RedisTemplate<String, String> redisTemplate,
+                                                  @Qualifier("redisMessageListenerContainer") RedisMessageListenerContainer messageListenerContainer) {
+            log.info("Creating Redis event transport");
+            RedisTransport transport = new RedisTransport();
+            return transport;
         }
     }
 }
