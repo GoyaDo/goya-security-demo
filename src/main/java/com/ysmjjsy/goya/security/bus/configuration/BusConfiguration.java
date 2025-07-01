@@ -8,13 +8,14 @@ import com.ysmjjsy.goya.security.bus.core.DefaultEventBus;
 import com.ysmjjsy.goya.security.bus.core.LocalEventBus;
 import com.ysmjjsy.goya.security.bus.decision.DefaultMessageConfigDecisionEngine;
 import com.ysmjjsy.goya.security.bus.decision.MessageConfigDecision;
-import com.ysmjjsy.goya.security.bus.duplicate.MessageDeduplicator;
 import com.ysmjjsy.goya.security.bus.route.DefaultRoutingStrategy;
 import com.ysmjjsy.goya.security.bus.route.RoutingStrategy;
 import com.ysmjjsy.goya.security.bus.route.RoutingStrategyManager;
 import com.ysmjjsy.goya.security.bus.serializer.JsonMessageSerializer;
 import com.ysmjjsy.goya.security.bus.serializer.MessageSerializer;
 import com.ysmjjsy.goya.security.bus.store.EventStore;
+import com.ysmjjsy.goya.security.bus.transport.kafka.KafkaRoutingStrategy;
+import com.ysmjjsy.goya.security.bus.transport.kafka.KafkaTransport;
 import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMQInfoManager;
 import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMQRoutingStrategy;
 import com.ysmjjsy.goya.security.bus.transport.rabbitmq.RabbitMQTransport;
@@ -24,10 +25,10 @@ import com.ysmjjsy.goya.security.bus.transport.redis.RedisTransport;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.producer.KafkaProducer;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -45,6 +46,7 @@ import org.springframework.retry.support.RetryTemplate;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.ThreadPoolExecutor;
 
 /**
@@ -221,7 +223,7 @@ public class BusConfiguration {
 
     @Slf4j
     @Configuration(proxyBeanMethods = false)
-    @ConditionalOnProperty(prefix = "bus.redis", name = "enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "bus.redis", name = "enabled", havingValue = "true")
     static class RedisConfiguration {
 
         @PostConstruct
@@ -230,31 +232,78 @@ public class BusConfiguration {
         }
 
         @Bean
+        @ConditionalOnMissingBean
         public RedisMessageListenerContainer redisMessageListenerContainer(RedisConnectionFactory connectionFactory) {
             RedisMessageListenerContainer container = new RedisMessageListenerContainer();
             container.setConnectionFactory(connectionFactory);
-            log.trace("[Goya] |- Bean [Redis Message Listener Container] Configure.");
+            log.debug("Redis Message Listener Container configured");
             return container;
         }
 
         @Bean
         @ConditionalOnMissingBean
-        public EventStore messageStore() {
-            return new RedisMessageStore();
+        public RedisMessageStore redisMessageStore(RedisTemplate<String, String> redisTemplate,
+                                                   MessageSerializer messageSerializer) {
+            return new RedisMessageStore(redisTemplate, messageSerializer);
         }
 
         @Bean
         @ConditionalOnMissingBean
-        public MessageDeduplicator messageDeduplicator() {
-            return new RedisMessageDeduplicator();
+        public RedisMessageDeduplicator redisMessageDeduplicator(RedisTemplate<String, String> redisTemplate) {
+            return new RedisMessageDeduplicator(redisTemplate);
         }
 
         @Bean
-        public RedisTransport redisEventTransport(RedisTemplate<String, String> redisTemplate,
-                                                  @Qualifier("redisMessageListenerContainer") RedisMessageListenerContainer messageListenerContainer) {
-            log.info("Creating Redis event transport");
-            RedisTransport transport = new RedisTransport();
-            return transport;
+        public RedisTransport redisTransport(RedisTemplate<String, String> redisTemplate,
+                                           RedisConnectionFactory connectionFactory,
+                                           MessageSerializer messageSerializer) {
+            return new RedisTransport(redisTemplate, connectionFactory, messageSerializer);
+        }
+    }
+
+    @Slf4j
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnProperty(prefix = "bus.kafka", name = "enabled", havingValue = "true")
+    static class KafkaConfiguration {
+
+        @PostConstruct
+        public void init() {
+            log.info("config [bus] | load [kafka] configuration");
+        }
+
+        @Bean
+        @ConditionalOnMissingBean
+        public KafkaProducer<String, byte[]> kafkaProducer(BusProperties busProperties) {
+            Properties props = new Properties();
+            // 基础配置 - 应该从配置文件读取
+            props.put("bootstrap.servers", "localhost:9092");
+            props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+            props.put("value.serializer", "org.apache.kafka.common.serialization.ByteArraySerializer");
+            
+            // 性能配置
+            props.put("acks", "1");
+            props.put("retries", 3);
+            props.put("batch.size", 16384);
+            props.put("linger.ms", 5);
+            props.put("buffer.memory", 33554432);
+            props.put("enable.idempotence", true);
+            props.put("max.in.flight.requests.per.connection", 5);
+            
+            log.debug("Kafka Producer configured with bootstrap.servers: {}", props.get("bootstrap.servers"));
+            return new KafkaProducer<>(props);
+        }
+
+        @Bean
+        public KafkaTransport kafkaTransport(KafkaProducer<String, byte[]> kafkaProducer,
+                                             MessageSerializer messageSerializer) {
+            return new KafkaTransport(kafkaProducer, messageSerializer);
+        }
+
+        @Bean
+        public KafkaRoutingStrategy kafkaRoutingStrategy(ApplicationContext applicationContext,
+                                                         BusProperties busProperties) {
+            return new KafkaRoutingStrategy(applicationContext, busProperties);
         }
     }
 }
+

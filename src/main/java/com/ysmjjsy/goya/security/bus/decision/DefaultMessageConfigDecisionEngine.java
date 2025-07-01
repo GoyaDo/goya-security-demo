@@ -203,18 +203,18 @@ public class DefaultMessageConfigDecisionEngine implements MessageConfigDecision
                     preferred, messageType);
         }
 
+        // 使用默认传输层
+        TransportType defaultTransport = properties.getDefaultTransport();
+        if (isTransportAvailable(defaultTransport, messageType)) {
+            return defaultTransport;
+        }
+
         // 根据消息类型和能力选择最优传输层
         for (Map.Entry<TransportType, MessageTransport> entry : transportRegistry.entrySet()) {
             MessageTransport transport = entry.getValue();
             if (transport.isHealthy() && supportsMessageType(transport, messageType)) {
                 return entry.getKey();
             }
-        }
-
-        // 使用默认传输层
-        TransportType defaultTransport = properties.getDefaultTransport();
-        if (isTransportAvailable(defaultTransport, messageType)) {
-            return defaultTransport;
         }
 
         log.warn("Default transport {} is not available, using LOCAL as fallback", defaultTransport);

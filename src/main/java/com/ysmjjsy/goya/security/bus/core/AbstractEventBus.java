@@ -34,6 +34,7 @@ import java.util.concurrent.CompletableFuture;
  * 1. 发布时一些特定参数底层适配需要优化
  * 2. 发布时需要查看监听器是否存在
  * 3. 异常逻辑
+ *
  * @author goya
  * @since 2025/6/24
  */
@@ -116,6 +117,7 @@ public abstract class AbstractEventBus implements IEventBus {
             // 构建传输消息
             TransportEvent transportEvent = buildTransportEvent(event, decision);
 
+            eventStore.save(new EventRecord(event, decision));
             TransportResult result = sendEvent(transportEvent, transport);
             if (result.isSuccess()) {
                 return PublishResult.success(result.getMessageId(), decision.getTransportType());
@@ -237,6 +239,7 @@ public abstract class AbstractEventBus implements IEventBus {
      */
     private TransportResult handleSendFailure(TransportEvent transportEvent, MessageTransport transport, String errorMessage, Throwable throwable) {
         try {
+            log.error("Failed to send reliable message: {}, error: {}", transport, errorMessage, throwable);
             SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy();
             retryPolicy.setMaxAttempts(transportEvent.getRetryTimes());
             retryTemplate.setRetryPolicy(retryPolicy);

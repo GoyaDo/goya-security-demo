@@ -48,6 +48,11 @@ public class BusProperties {
     private RabbitMQ rabbitmq = new RabbitMQ();
 
     /**
+     * RabbitMQ传输配置
+     */
+    private Kafka kafka = new Kafka();
+
+    /**
      * 线程池配置
      */
     @Data
@@ -98,4 +103,14 @@ public class BusProperties {
          */
         private boolean enabled = false;
     }
+
+    @Setter
+    @Getter
+    public static class Kafka {
+        /**
+         * 是否启用Kafka传输
+         */
+        private boolean enabled = false;
+    }
+
 } 

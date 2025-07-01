@@ -83,3 +83,5 @@ bus:
     enabled: true
   rabbitmq:
     enabled: true
+  kafka:
+    enabled: false
