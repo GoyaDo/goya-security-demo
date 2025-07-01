@@ -1,5 +1,6 @@
 package com.ysmjjsy.goya.security.bus.api;
 
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.ysmjjsy.goya.security.bus.enums.EventStatus;
 
 import java.time.LocalDateTime;
@@ -10,6 +11,7 @@ import java.time.LocalDateTime;
  * @author goya
  * @since 2025/6/24
  */
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "@type")
 public interface IEvent {
 
     /**
