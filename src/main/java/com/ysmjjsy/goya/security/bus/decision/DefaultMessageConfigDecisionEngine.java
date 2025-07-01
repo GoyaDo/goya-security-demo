@@ -116,7 +116,7 @@ public class DefaultMessageConfigDecisionEngine implements MessageConfigDecision
             builder.sequenceKey(hint.getSequenceKey());
             builder.ttl(hint.getTtl());
             builder.persistent(hint.isPersistent());
-            builder.retryTimes(hint.getRetryTimes());
+            builder.retryTimes(Objects.isNull(hint.getRetryTimes()) ? properties.getDefaultRetryTimes() : hint.getRetryTimes());
             builder.idempotence(hint.getIdempotence());
             builder.properties(hint.getProperties());
         }

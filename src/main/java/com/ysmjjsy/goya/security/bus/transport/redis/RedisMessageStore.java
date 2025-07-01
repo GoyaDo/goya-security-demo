@@ -1,6 +1,7 @@
 package com.ysmjjsy.goya.security.bus.transport.redis;
 
 import com.ysmjjsy.goya.security.bus.api.IEvent;
+import com.ysmjjsy.goya.security.bus.configuration.properties.BusProperties;
 import com.ysmjjsy.goya.security.bus.decision.DecisionResult;
 import com.ysmjjsy.goya.security.bus.enums.EventStatus;
 import com.ysmjjsy.goya.security.bus.serializer.MessageSerializer;
@@ -12,7 +13,6 @@ import org.springframework.data.redis.core.RedisTemplate;
 
 import java.time.ZoneId;
 import java.util.*;
-import java.util.Base64;
 
 /**
  * 基于Redis的消息存储实现（Outbox模式）
@@ -32,13 +32,14 @@ public class RedisMessageStore implements EventStore {
 
     private final RedisTemplate<String, String> redisTemplate;
     private final MessageSerializer messageSerializer;
+    private final BusProperties busProperties;
 
     // Redis Key 前缀
-    private static final String EVENT_RECORD_PREFIX = "mq:event:";
-    private static final String STATUS_INDEX_PREFIX = "mq:status:";
-    private static final String RETRY_QUEUE_PREFIX = "mq:retry:";
-    private static final String READY_QUEUE_KEY = "mq:ready";
-    private static final String ERROR_INFO_PREFIX = "mq:error:";
+    private static final String EVENT_RECORD_PREFIX = "redis:event:";
+    private static final String STATUS_INDEX_PREFIX = "redis:status:";
+    private static final String RETRY_QUEUE_PREFIX = "redis:retry:";
+    private static final String READY_QUEUE_KEY = "redis:ready";
+    private static final String ERROR_INFO_PREFIX = "redis:error:";
 
     @Override
     public void save(EventRecord record) {
@@ -120,7 +121,7 @@ public class RedisMessageStore implements EventStore {
 
             // 保存错误信息（如果有）
             if (errorMessage != null) {
-                redisTemplate.opsForValue().set(ERROR_INFO_PREFIX + eventId, errorMessage);
+                redisTemplate.opsForValue().set(busProperties.getBusPrefix() + ":" + ERROR_INFO_PREFIX + eventId, errorMessage);
             }
 
             log.debug("Updated event status: {}, from {} to {}", eventId, currentStatus, status);
@@ -165,7 +166,7 @@ public class RedisMessageStore implements EventStore {
     public List<EventRecord> findReadyToSend(int limit) {
         try {
             // 从准备队列中获取事件ID
-            List<String> eventIds = redisTemplate.opsForList().range(READY_QUEUE_KEY, 0, limit - 1);
+            List<String> eventIds = redisTemplate.opsForList().range(busProperties.getBusPrefix() + ":" + READY_QUEUE_KEY, 0, limit - 1);
 
             if (eventIds == null || eventIds.isEmpty()) {
                 return Collections.emptyList();
@@ -177,7 +178,7 @@ public class RedisMessageStore implements EventStore {
                 if (record != null && record.getEvent().getEventStatus() == EventStatus.PENDING) {
                     result.add(record);
                     // 从准备队列中移除
-                    redisTemplate.opsForList().remove(READY_QUEUE_KEY, 1, eventId);
+                    redisTemplate.opsForList().remove(busProperties.getBusPrefix() + ":" + READY_QUEUE_KEY, 1, eventId);
                 }
             }
 
@@ -194,7 +195,7 @@ public class RedisMessageStore implements EventStore {
     public List<EventRecord> findRetryable(int limit) {
         try {
             // 从重试队列中获取事件ID（按分数排序，分数越小优先级越高）
-            Set<String> eventIds = redisTemplate.opsForZSet().range(RETRY_QUEUE_PREFIX + "default", 0, limit - 1);
+            Set<String> eventIds = redisTemplate.opsForZSet().range(busProperties.getBusPrefix() + ":" + RETRY_QUEUE_PREFIX + "default", 0, limit - 1);
 
             if (eventIds == null || eventIds.isEmpty()) {
                 return Collections.emptyList();
@@ -205,14 +206,14 @@ public class RedisMessageStore implements EventStore {
 
             for (String eventId : eventIds) {
                 // 检查是否到了重试时间
-                Double score = redisTemplate.opsForZSet().score(RETRY_QUEUE_PREFIX + "default", eventId);
+                Double score = redisTemplate.opsForZSet().score(busProperties.getBusPrefix() + ":" + RETRY_QUEUE_PREFIX + "default", eventId);
                 if (score != null && score <= currentTime) {
                     EventRecord record = findById(eventId);
                     if (record != null && (record.getEvent().getEventStatus() == EventStatus.FAILED
                             || record.getEvent().getEventStatus() == EventStatus.RETRYING)) {
                         result.add(record);
                         // 从重试队列中移除
-                        redisTemplate.opsForZSet().remove(RETRY_QUEUE_PREFIX + "default", eventId);
+                        redisTemplate.opsForZSet().remove(busProperties.getBusPrefix() + ":" + RETRY_QUEUE_PREFIX + "default", eventId);
                     }
                 }
             }
@@ -242,11 +243,11 @@ public class RedisMessageStore implements EventStore {
             redisTemplate.delete(key);
 
             // 删除错误信息
-            redisTemplate.delete(ERROR_INFO_PREFIX + messageId);
+            redisTemplate.delete(busProperties.getBusPrefix() + ":" + ERROR_INFO_PREFIX + messageId);
 
             // 从各个队列中移除
-            redisTemplate.opsForList().remove(READY_QUEUE_KEY, 0, messageId);
-            redisTemplate.opsForZSet().remove(RETRY_QUEUE_PREFIX + "default", messageId);
+            redisTemplate.opsForList().remove(busProperties.getBusPrefix() + ":" + READY_QUEUE_KEY, 0, messageId);
+            redisTemplate.opsForZSet().remove(busProperties.getBusPrefix() + ":" + RETRY_QUEUE_PREFIX + "default", messageId);
 
             log.debug("Deleted event record: {}", messageId);
 
@@ -258,7 +259,7 @@ public class RedisMessageStore implements EventStore {
     @Override
     public int deleteExpiredSuccessRecords(long beforeTime) {
         try {
-            Set<String> statusKeys = redisTemplate.keys(STATUS_INDEX_PREFIX + EventStatus.SUCCESS.name() + ":*");
+            Set<String> statusKeys = redisTemplate.keys(busProperties.getBusPrefix() + ":" + STATUS_INDEX_PREFIX + EventStatus.SUCCESS.name() + ":*");
             if (statusKeys == null || statusKeys.isEmpty()) {
                 return 0;
             }
@@ -295,7 +296,7 @@ public class RedisMessageStore implements EventStore {
             Map<EventStatus, Long> result = new HashMap<>();
 
             for (EventStatus status : EventStatus.values()) {
-                Set<String> statusKeys = redisTemplate.keys(STATUS_INDEX_PREFIX + status.name() + ":*");
+                Set<String> statusKeys = redisTemplate.keys(busProperties.getBusPrefix() + ":" + STATUS_INDEX_PREFIX + status.name() + ":*");
                 long count = 0;
 
                 if (statusKeys != null) {
@@ -324,13 +325,13 @@ public class RedisMessageStore implements EventStore {
     private void updateStatusIndex(String eventId, EventStatus oldStatus, EventStatus newStatus) {
         // 从旧状态索引中移除
         if (oldStatus != null) {
-            String oldStatusKey = STATUS_INDEX_PREFIX + oldStatus.name() + ":" + getShardIndex(eventId);
+            String oldStatusKey = busProperties.getBusPrefix() + ":" + STATUS_INDEX_PREFIX + oldStatus.name() + ":" + getShardIndex(eventId);
             redisTemplate.opsForSet().remove(oldStatusKey, eventId);
         }
 
         // 添加到新状态索引
         if (newStatus != null) {
-            String newStatusKey = STATUS_INDEX_PREFIX + newStatus.name() + ":" + getShardIndex(eventId);
+            String newStatusKey = busProperties.getBusPrefix() + ":" + STATUS_INDEX_PREFIX + newStatus.name() + ":" + getShardIndex(eventId);
             redisTemplate.opsForSet().add(newStatusKey, eventId);
         }
     }
@@ -342,21 +343,21 @@ public class RedisMessageStore implements EventStore {
         // 根据新状态决定队列操作
         switch (newStatus) {
             case PENDING:
-                redisTemplate.opsForList().leftPush(READY_QUEUE_KEY, eventId);
+                redisTemplate.opsForList().leftPush(busProperties.getBusPrefix() + ":" + READY_QUEUE_KEY, eventId);
                 break;
             case FAILED:
             case RETRYING:
                 // 添加到重试队列，使用当前时间+延迟时间作为score
                 long retryTime = System.currentTimeMillis() + calculateRetryDelay(record);
-                redisTemplate.opsForZSet().add(RETRY_QUEUE_PREFIX + "default", eventId, retryTime);
+                redisTemplate.opsForZSet().add(busProperties.getBusPrefix() + ":" + RETRY_QUEUE_PREFIX + "default", eventId, retryTime);
                 break;
             case SUCCESS:
             case DEAD_LETTER:
             case EXPIRED:
             case CANCELLED:
                 // 从准备队列和重试队列中移除
-                redisTemplate.opsForList().remove(READY_QUEUE_KEY, 0, eventId);
-                redisTemplate.opsForZSet().remove(RETRY_QUEUE_PREFIX + "default", eventId);
+                redisTemplate.opsForList().remove(busProperties.getBusPrefix() + ":" + READY_QUEUE_KEY, 0, eventId);
+                redisTemplate.opsForZSet().remove(busProperties.getBusPrefix() + ":" + RETRY_QUEUE_PREFIX + "default", eventId);
                 break;
         }
     }
@@ -377,7 +378,7 @@ public class RedisMessageStore implements EventStore {
      * 构建事件Key
      */
     private String buildEventKey(String eventId) {
-        return EVENT_RECORD_PREFIX + eventId;
+        return busProperties.getBusPrefix() + ":" + EVENT_RECORD_PREFIX + eventId;
     }
 
     /**

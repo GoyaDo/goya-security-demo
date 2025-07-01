@@ -243,8 +243,9 @@ public class BusConfiguration {
         @Bean
         @ConditionalOnMissingBean
         public RedisMessageStore redisMessageStore(RedisTemplate<String, String> redisTemplate,
-                                                   MessageSerializer messageSerializer) {
-            return new RedisMessageStore(redisTemplate, messageSerializer);
+                                                   MessageSerializer messageSerializer,
+                                                   BusProperties busProperties) {
+            return new RedisMessageStore(redisTemplate, messageSerializer, busProperties);
         }
 
         @Bean
@@ -255,8 +256,8 @@ public class BusConfiguration {
 
         @Bean
         public RedisTransport redisTransport(RedisTemplate<String, String> redisTemplate,
-                                           RedisConnectionFactory connectionFactory,
-                                           MessageSerializer messageSerializer) {
+                                             RedisConnectionFactory connectionFactory,
+                                             MessageSerializer messageSerializer) {
             return new RedisTransport(redisTemplate, connectionFactory, messageSerializer);
         }
     }
@@ -279,7 +280,7 @@ public class BusConfiguration {
             props.put("bootstrap.servers", "localhost:9092");
             props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
             props.put("value.serializer", "org.apache.kafka.common.serialization.ByteArraySerializer");
-            
+
             // 性能配置
             props.put("acks", "1");
             props.put("retries", 3);
@@ -288,7 +289,7 @@ public class BusConfiguration {
             props.put("buffer.memory", 33554432);
             props.put("enable.idempotence", true);
             props.put("max.in.flight.requests.per.connection", 5);
-            
+
             log.debug("Kafka Producer configured with bootstrap.servers: {}", props.get("bootstrap.servers"));
             return new KafkaProducer<>(props);
         }

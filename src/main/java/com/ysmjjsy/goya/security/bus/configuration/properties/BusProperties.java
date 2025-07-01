@@ -25,12 +25,17 @@ public class BusProperties {
      * 默认业务域
      * 完整为applicationName + "." + busPrefix+ ".eventKey"
      */
-    private String busPrefix = "unified";
+    private String busPrefix = "bus";
 
     /**
      * 默认传输层类型
      */
     private TransportType defaultTransport = TransportType.RABBITMQ;
+
+    /**
+     * 默认重试次数
+     */
+    private Integer defaultRetryTimes = 3;
 
     /**
      * 线程池配置
