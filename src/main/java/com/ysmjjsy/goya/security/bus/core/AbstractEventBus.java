@@ -1,6 +1,5 @@
 package com.ysmjjsy.goya.security.bus.core;
 
-import com.ysmjjsy.goya.security.bus.exception.BusException;
 import com.ysmjjsy.goya.security.bus.api.IEvent;
 import com.ysmjjsy.goya.security.bus.api.IEventBus;
 import com.ysmjjsy.goya.security.bus.api.PublishResult;
@@ -9,6 +8,7 @@ import com.ysmjjsy.goya.security.bus.decision.MessageConfigDecision;
 import com.ysmjjsy.goya.security.bus.encry.MessageEncryptor;
 import com.ysmjjsy.goya.security.bus.enums.EventStatus;
 import com.ysmjjsy.goya.security.bus.enums.TransportType;
+import com.ysmjjsy.goya.security.bus.exception.BusException;
 import com.ysmjjsy.goya.security.bus.serializer.MessageSerializer;
 import com.ysmjjsy.goya.security.bus.spi.EventRecord;
 import com.ysmjjsy.goya.security.bus.spi.TransportEvent;
@@ -18,7 +18,6 @@ import com.ysmjjsy.goya.security.bus.transport.MessageTransport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.task.TaskExecutor;
-import org.springframework.retry.policy.SimpleRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.util.StringUtils;
 
@@ -240,10 +239,6 @@ public abstract class AbstractEventBus implements IEventBus {
     private TransportResult handleSendFailure(TransportEvent transportEvent, MessageTransport transport, String errorMessage, Throwable throwable) {
         try {
             log.error("Failed to send reliable message: {}, error: {}", transport, errorMessage, throwable);
-            SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy();
-            retryPolicy.setMaxAttempts(transportEvent.getRetryTimes());
-            retryTemplate.setRetryPolicy(retryPolicy);
-
             TransportResult result = retryTemplate.execute(context -> {
                 log.warn("Retrying to send event: {}, attempt {}", transportEvent.getEventId(), context.getRetryCount() + 1);
                 return transport.send(transportEvent);

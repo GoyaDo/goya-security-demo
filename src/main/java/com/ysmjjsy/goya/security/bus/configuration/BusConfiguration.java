@@ -79,19 +79,20 @@ public class BusConfiguration {
     }
 
     @Bean
-    public RetryTemplate retryTemplate() {
+    @ConditionalOnMissingBean
+    public RetryTemplate retryTemplate(BusProperties busProperties) {
         RetryTemplate retryTemplate = new RetryTemplate();
 
         // 1. 重试策略（最多重试3次）
         SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy();
         // 可被动态替换，如方法中再次设置
-        retryPolicy.setMaxAttempts(3);
+        retryPolicy.setMaxAttempts(busProperties.getDefaultRetryTimes());
         retryTemplate.setRetryPolicy(retryPolicy);
 
         // 2. 回退策略（每次重试间隔1000ms）
         FixedBackOffPolicy backOffPolicy = new FixedBackOffPolicy();
         // 1 秒
-        backOffPolicy.setBackOffPeriod(1000L);
+        backOffPolicy.setBackOffPeriod(busProperties.getDefaultRetryDelay());
         retryTemplate.setBackOffPolicy(backOffPolicy);
 
         return retryTemplate;

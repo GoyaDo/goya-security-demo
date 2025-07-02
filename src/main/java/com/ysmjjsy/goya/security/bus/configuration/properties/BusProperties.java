@@ -38,6 +38,11 @@ public class BusProperties {
     private Integer defaultRetryTimes = 3;
 
     /**
+     * 默认重试延迟时间（毫秒）
+     */
+    private Long defaultRetryDelay = 3000L;
+
+    /**
      * 线程池配置
      */
     private Executor executor = new Executor();
