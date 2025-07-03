@@ -7,10 +7,7 @@ import com.ysmjjsy.goya.security.bus.spi.MessageConsumer;
 import com.ysmjjsy.goya.security.bus.spi.SubscriptionConfig;
 import com.ysmjjsy.goya.security.bus.spi.TransportEvent;
 import com.ysmjjsy.goya.security.bus.spi.TransportResult;
-import org.apache.commons.lang3.StringUtils;
 
-import java.lang.annotation.Annotation;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -60,31 +57,4 @@ public interface MessageTransport {
      * @return true表示健康，false表示不健康
      */
     boolean isHealthy();
-
-    /**
-     * 构建订阅属性
-     *
-     * @param config 订阅配置
-     * @return 订阅属性
-     */
-    Map<String, Object> buildSubscriptionProperties(Annotation config);
-
-
-    default void putProperty(Map<String, Object> properties, String key, Object value) {
-        if (value !=null){
-            if (value instanceof String){
-                String valueStr = (String) value;
-                if (StringUtils.isBlank(valueStr)){
-                    return;
-                }
-            }
-            if (value instanceof Integer){
-                int valueInt = (int) value;
-                if (valueInt == 0){
-                    return;
-                }
-            }
-            properties.put(key, value);
-        }
-    }
 }

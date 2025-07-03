@@ -18,10 +18,10 @@ public class UserEventListener {
     /**
      * 方法级监听器示例 - 处理用户创建事件
      */
-    @IListener(
-//            messageModel = EventModel.TOPIC,
-//            eventKey = "user.created.default"
-    )
+//    @IListener(
+////            messageModel = EventModel.TOPIC,
+////            eventKey = "user.created.default"
+//    )
     public ConsumeResult handleUserCreated(UserCreatedEvent event) {
         try {
             log.info("Processing user created event: {}", event);

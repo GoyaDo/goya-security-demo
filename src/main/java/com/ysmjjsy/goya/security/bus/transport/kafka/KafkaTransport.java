@@ -1,6 +1,5 @@
 package com.ysmjjsy.goya.security.bus.transport.kafka;
 
-import com.ysmjjsy.goya.security.bus.annotation.KafkaConfig;
 import com.ysmjjsy.goya.security.bus.enums.ConsumeResult;
 import com.ysmjjsy.goya.security.bus.enums.EventCapability;
 import com.ysmjjsy.goya.security.bus.enums.EventModel;
@@ -22,9 +21,11 @@ import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.internals.RecordHeader;
 
-import java.lang.annotation.Annotation;
 import java.time.Duration;
-import java.util.*;
+import java.util.Collections;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.*;
 
 /**
@@ -253,17 +254,6 @@ public class KafkaTransport implements MessageTransport {
     @Override
     public boolean isHealthy() {
         return healthy;
-    }
-
-    @Override
-    public Map<String, Object> buildSubscriptionProperties(Annotation config) {
-        if (config instanceof KafkaConfig kafkaConfig) {
-            Map<String, Object> properties = new HashMap<>();
-            putProperty(properties, "enabled", kafkaConfig.enabled());
-            // 可以添加更多Kafka特定配置
-            return properties;
-        }
-        return new HashMap<>();
     }
 
     /**

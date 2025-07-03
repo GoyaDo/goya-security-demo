@@ -8,7 +8,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -39,8 +38,8 @@ public class EventTestController {
             log.info("Publishing user created event: {}", userData.getEventId());
             
             // 发布事件
-            PublishResult result = eventBus.publishDelayed(userData, Duration.ofSeconds(3));
-//            PublishResult result = eventBus.publish(userData);
+//            PublishResult result = eventBus.publishDelayed(userData, Duration.ofSeconds(3));
+            PublishResult result = eventBus.publish(userData);
 
             Map<String, Object> response = new HashMap<>();
             response.put("eventId", userData.getEventId());

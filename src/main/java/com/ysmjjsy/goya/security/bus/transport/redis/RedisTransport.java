@@ -1,6 +1,5 @@
 package com.ysmjjsy.goya.security.bus.transport.redis;
 
-import com.ysmjjsy.goya.security.bus.annotation.RedisConfig;
 import com.ysmjjsy.goya.security.bus.enums.ConsumeResult;
 import com.ysmjjsy.goya.security.bus.enums.EventCapability;
 import com.ysmjjsy.goya.security.bus.enums.EventModel;
@@ -19,9 +18,7 @@ import org.springframework.data.redis.listener.PatternTopic;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.data.redis.listener.adapter.MessageListenerAdapter;
 
-import java.lang.annotation.Annotation;
 import java.time.Duration;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -71,7 +68,7 @@ public class RedisTransport implements MessageTransport {
         });
 
         // 启动延迟消息处理器
-        startDelayedMessageProcessor();
+//        startDelayedMessageProcessor();
         checkHealth();
         log.info("Redis transport initialized with Pub/Sub and List support");
     }
@@ -377,16 +374,6 @@ public class RedisTransport implements MessageTransport {
     @Override
     public boolean isHealthy() {
         return healthy;
-    }
-
-    @Override
-    public Map<String, Object> buildSubscriptionProperties(Annotation config) {
-        if (config instanceof RedisConfig redisConfig) {
-            Map<String, Object> properties = new HashMap<>();
-            putProperty(properties, "enabled", redisConfig.enabled());
-            return properties;
-        }
-        return new HashMap<>();
     }
 
     /**

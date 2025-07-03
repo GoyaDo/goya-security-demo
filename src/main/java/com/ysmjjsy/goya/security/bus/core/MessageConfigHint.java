@@ -1,8 +1,10 @@
 package com.ysmjjsy.goya.security.bus.core;
 
 import com.ysmjjsy.goya.security.bus.enums.*;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -19,12 +21,14 @@ import java.util.Map;
  */
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class MessageConfigHint {
 
     /**
      * 消息模型提示 - QUEUE 或 TOPIC
      */
-    private EventModel messageModel;
+    private EventModel eventModel;
 
     /**
      * 消息类型提示 - NORMAL, DELAYED, SCHEDULED, ORDERED

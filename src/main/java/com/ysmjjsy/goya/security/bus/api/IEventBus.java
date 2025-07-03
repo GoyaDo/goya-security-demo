@@ -30,7 +30,7 @@ public interface IEventBus {
      * @return 发布结果
      */
     default PublishResult publish(IEvent event) {
-        return publish(event, null);
+        return publish(event, new MessageConfigHint());
     }
 
     /**

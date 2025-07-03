@@ -3,6 +3,7 @@ package com.ysmjjsy.goya.security.bus.core;
 import com.ysmjjsy.goya.security.bus.api.IEvent;
 import com.ysmjjsy.goya.security.bus.api.IEventBus;
 import com.ysmjjsy.goya.security.bus.api.PublishResult;
+import com.ysmjjsy.goya.security.bus.context.MessageTransportContext;
 import com.ysmjjsy.goya.security.bus.decision.DecisionResult;
 import com.ysmjjsy.goya.security.bus.decision.MessageConfigDecision;
 import com.ysmjjsy.goya.security.bus.encry.MessageEncryptor;
@@ -17,10 +18,12 @@ import com.ysmjjsy.goya.security.bus.store.EventStore;
 import com.ysmjjsy.goya.security.bus.transport.MessageTransport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationContext;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.util.StringUtils;
 
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -47,6 +50,8 @@ public abstract class AbstractEventBus implements IEventBus {
     private final MessageSerializer messageSerializer;
     private final EventStore eventStore;
     private final RetryTemplate retryTemplate;
+    private final MessageTransportContext messageTransportContext;
+    private final ApplicationContext applicationContext;
 
     @Override
     public PublishResult publish(IEvent event, MessageConfigHint hint) {
@@ -133,7 +138,7 @@ public abstract class AbstractEventBus implements IEventBus {
      * 根据决策结果获取传输层
      */
     private MessageTransport getTransportByDecision(DecisionResult decision) {
-        return messageConfigDecision.getRegisteredTransports().get(decision.getTransportType());
+        return messageTransportContext.getTransportRegistry().get(decision.getTransportType());
     }
 
     /**
@@ -206,6 +211,19 @@ public abstract class AbstractEventBus implements IEventBus {
     private TransportResult sendEvent(TransportEvent transportEvent, MessageTransport transport) {
         CompletableFuture<TransportResult> resultCompletableFuture = CompletableFuture.supplyAsync(() -> {
             try {
+
+                ListenerManage listenerManage = applicationContext.getBean(DefaultListenerManage.class);
+
+                for (Map.Entry<String, ListenerManage> entry : applicationContext.getBeansOfType(ListenerManage.class).entrySet()) {
+                    String key = entry.getKey();
+                    ListenerManage value = entry.getValue();
+                    if (org.apache.commons.lang3.StringUtils.containsIgnoreCase(key, transportEvent.getTransportType().name())) {
+                        listenerManage = value;
+                    }
+                }
+                // 构建mq信息
+                listenerManage.buildMqInfosAfter(transportEvent);
+
                 // 更新状态为发送中
                 eventStore.updateStatus(transportEvent.getEventId(), EventStatus.SENDING, null);
                 transportEvent.setEventStatus(EventStatus.SENDING);

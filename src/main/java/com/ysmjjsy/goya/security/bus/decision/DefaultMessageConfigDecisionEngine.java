@@ -2,21 +2,19 @@ package com.ysmjjsy.goya.security.bus.decision;
 
 import com.ysmjjsy.goya.security.bus.api.IEvent;
 import com.ysmjjsy.goya.security.bus.configuration.properties.BusProperties;
+import com.ysmjjsy.goya.security.bus.context.MessageTransportContext;
 import com.ysmjjsy.goya.security.bus.core.MessageConfigHint;
-import com.ysmjjsy.goya.security.bus.route.RoutingStrategyManager;
 import com.ysmjjsy.goya.security.bus.enums.*;
-import com.ysmjjsy.goya.security.bus.transport.MessageTransport;
 import com.ysmjjsy.goya.security.bus.route.RoutingContext;
+import com.ysmjjsy.goya.security.bus.route.RoutingStrategyManager;
+import com.ysmjjsy.goya.security.bus.transport.MessageTransport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 消息配置智能决策引擎
@@ -32,33 +30,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class DefaultMessageConfigDecisionEngine implements MessageConfigDecision {
 
     private final BusProperties properties;
-    private final Map<TransportType, MessageTransport> transportRegistry = new ConcurrentHashMap<>();
-    private RoutingStrategyManager routingStrategyManager;
-
-    /**
-     * 设置路由策略管理器（延迟注入以避免循环依赖）
-     */
-    @Autowired(required = false)
-    public void setRoutingStrategyManager(RoutingStrategyManager routingStrategyManager) {
-        this.routingStrategyManager = routingStrategyManager;
-        log.info("Routing strategy manager injected into decision engine");
-    }
-
-    /**
-     * 注册传输层
-     *
-     * @param transports 传输层列表
-     */
-    @Autowired(required = false)
-    public void registerTransports(List<MessageTransport> transports) {
-        if (transports != null) {
-            for (MessageTransport transport : transports) {
-                transportRegistry.put(transport.getTransportType(), transport);
-                log.info("Registered MessageTransport: {} with capabilities: {}",
-                        transport.getTransportType(), transport.getSupportedCapabilities());
-            }
-        }
-    }
+    private final RoutingStrategyManager routingStrategyManager;
+    private final MessageTransportContext messageTransportContext;
 
     /**
      * 决策消息配置
@@ -130,8 +103,8 @@ public class DefaultMessageConfigDecisionEngine implements MessageConfigDecision
      * 决策消息模型
      */
     private EventModel decideMessageModel(IEvent event, MessageConfigHint hint) {
-        if (hint != null && hint.getMessageModel() != null) {
-            return hint.getMessageModel();
+        if (hint != null && hint.getEventModel() != null) {
+            return hint.getEventModel();
         }
 
         // 根据事件类型推断：通知类事件通常使用TOPIC，命令类事件使用QUEUE
@@ -210,7 +183,7 @@ public class DefaultMessageConfigDecisionEngine implements MessageConfigDecision
         }
 
         // 根据消息类型和能力选择最优传输层
-        for (Map.Entry<TransportType, MessageTransport> entry : transportRegistry.entrySet()) {
+        for (Map.Entry<TransportType, MessageTransport> entry : messageTransportContext.getTransportRegistry().entrySet()) {
             MessageTransport transport = entry.getValue();
             if (transport.isHealthy() && supportsMessageType(transport, messageType)) {
                 return entry.getKey();
@@ -225,7 +198,7 @@ public class DefaultMessageConfigDecisionEngine implements MessageConfigDecision
      * 检查传输层是否可用且支持指定消息类型
      */
     private boolean isTransportAvailable(TransportType transportType, EventType messageType) {
-        MessageTransport transport = transportRegistry.get(transportType);
+        MessageTransport transport = messageTransportContext.getTransportRegistry().get(transportType);
         return transport != null && transport.isHealthy() && supportsMessageType(transport, messageType);
     }
 
@@ -257,14 +230,6 @@ public class DefaultMessageConfigDecisionEngine implements MessageConfigDecision
             log.debug("Failed to check transaction status: {}", e.getMessage());
             return false;
         }
-    }
-
-    /**
-     * 获取已注册的传输层
-     */
-    @Override
-    public Map<TransportType, MessageTransport> getRegisteredTransports() {
-        return new ConcurrentHashMap<>(transportRegistry);
     }
 
 

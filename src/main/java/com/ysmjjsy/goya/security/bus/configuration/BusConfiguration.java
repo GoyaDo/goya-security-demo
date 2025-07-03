@@ -4,7 +4,10 @@ import cn.hutool.extra.spring.SpringUtil;
 import com.ysmjjsy.goya.security.bus.api.IEventBus;
 import com.ysmjjsy.goya.security.bus.configuration.properties.BusProperties;
 import com.ysmjjsy.goya.security.bus.context.EventListenerBeanPostProcessor;
+import com.ysmjjsy.goya.security.bus.context.MessageTransportContext;
 import com.ysmjjsy.goya.security.bus.core.DefaultEventBus;
+import com.ysmjjsy.goya.security.bus.core.DefaultListenerManage;
+import com.ysmjjsy.goya.security.bus.core.ListenerManage;
 import com.ysmjjsy.goya.security.bus.core.LocalEventBus;
 import com.ysmjjsy.goya.security.bus.decision.DefaultMessageConfigDecisionEngine;
 import com.ysmjjsy.goya.security.bus.decision.MessageConfigDecision;
@@ -69,13 +72,22 @@ public class BusConfiguration {
     }
 
     @Bean
+    public MessageTransportContext messageTransportContext() {
+        return new MessageTransportContext();
+    }
+
+    @Bean
+    public ListenerManage listenerManage(BusProperties busProperties, RoutingStrategyManager routingStrategyManager, MessageTransportContext messageTransportContext) {
+        return new DefaultListenerManage(busProperties, routingStrategyManager, messageTransportContext);
+    }
+
+    @Bean
     public EventListenerBeanPostProcessor eventListenerBeanPostProcessor(
             BusProperties properties,
             LocalEventBus localEventBus,
-            MessageConfigDecision messageConfigDecision,
-            RoutingStrategyManager routingStrategyManager
+            ApplicationContext applicationContext
     ) {
-        return new EventListenerBeanPostProcessor(properties, localEventBus, messageConfigDecision, routingStrategyManager);
+        return new EventListenerBeanPostProcessor(properties, localEventBus, applicationContext);
     }
 
     @Bean
@@ -116,8 +128,10 @@ public class BusConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    public MessageConfigDecision messageConfigDecision(BusProperties busProperties) {
-        return new DefaultMessageConfigDecisionEngine(busProperties);
+    public MessageConfigDecision messageConfigDecision(BusProperties busProperties,
+                                                       RoutingStrategyManager routingStrategyManager,
+                                                       MessageTransportContext messageTransportContext) {
+        return new DefaultMessageConfigDecisionEngine(busProperties, routingStrategyManager, messageTransportContext);
     }
 
     @Bean
@@ -144,14 +158,18 @@ public class BusConfiguration {
                                LocalEventBus localEventBus,
                                MessageSerializer messageSerializer,
                                EventStore messageStore,
-                               RetryTemplate retryTemplate) {
+                               RetryTemplate retryTemplate,
+                               MessageTransportContext messageTransportContext,
+                               ApplicationContext applicationContext) {
         return new DefaultEventBus(
                 messageConfigDecision,
                 busTaskExecutor,
                 localEventBus,
                 messageSerializer,
                 messageStore,
-                retryTemplate
+                retryTemplate,
+                messageTransportContext,
+                applicationContext
         );
     }
 
@@ -211,9 +229,20 @@ public class BusConfiguration {
 
 
         @Bean
-        @ConditionalOnMissingBean
-        public RabbitMQInfoManager rabbitMQInfoManager(RabbitAdmin rabbitAdmin) {
-            return new RabbitMQInfoManager(rabbitAdmin);
+        public RabbitMQInfoManager rabbitMQInfoManager(BusProperties properties,
+                                                       RoutingStrategyManager routingStrategyManager,
+                                                       RabbitAdmin rabbitAdmin,
+                                                       MessageTransportContext messageTransportContext,
+                                                       MessageSerializer messageSerializer,
+                                                       RabbitTemplate rabbitTemplate,
+                                                       ConnectionFactory connectionFactory) {
+            return new RabbitMQInfoManager(properties,
+                    routingStrategyManager,
+                    rabbitAdmin,
+                    messageTransportContext,
+                    messageSerializer,
+                    rabbitTemplate,
+                    connectionFactory);
         }
 
         @Bean

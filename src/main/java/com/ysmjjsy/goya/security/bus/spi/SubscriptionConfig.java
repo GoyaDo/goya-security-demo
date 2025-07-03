@@ -42,18 +42,6 @@ public class SubscriptionConfig {
     private String eventClass;
 
     /**
-     * 队列最大消息数
-     */
-    @Builder.Default
-    private int maxMessageSize = 1024 * 1024;
-
-    /**
-     * 队列最大字节数
-     */
-    @Builder.Default
-    private int maxMessageBytes = 1024 * 1024;
-
-    /**
      * 是否启用
      */
     @Builder.Default

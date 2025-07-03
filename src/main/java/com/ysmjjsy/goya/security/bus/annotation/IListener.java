@@ -31,7 +31,7 @@ public @interface IListener {
      *
      * @return 消息模型
      */
-    EventModel messageModel() default EventModel.QUEUE;
+    EventModel eventModel() default EventModel.QUEUE;
 
     /**
      * 监听的事件类型列表
