@@ -97,7 +97,7 @@ public @interface RabbitConfig {
     /**
      * 设置‘x-single-active-consumer’队列参数。
      */
-    boolean singleActiveConsumer() default false;
+    boolean singleActiveConsumer() default true;
 
     /**
      * 设置queue参数以声明类型为“quorum”而不是“classic”的队列。

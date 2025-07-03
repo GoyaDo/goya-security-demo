@@ -1,5 +1,6 @@
 package com.ysmjjsy.goya.security.bus.spi;
 
+import com.ysmjjsy.goya.security.bus.api.IEvent;
 import com.ysmjjsy.goya.security.bus.enums.EventModel;
 import com.ysmjjsy.goya.security.bus.enums.TransportType;
 import com.ysmjjsy.goya.security.bus.route.RoutingContext;
@@ -39,7 +40,12 @@ public class SubscriptionConfig {
     /**
      * 事件类
      */
-    private String eventClass;
+    private String eventClassSimpleName;
+
+    /**
+     * 事件类
+     */
+    private Class<? extends IEvent> eventClass;
 
     /**
      * 是否启用

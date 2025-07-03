@@ -1,5 +1,7 @@
 package com.ysmjjsy.goya.security.bus.spi;
 
+import com.ysmjjsy.goya.security.bus.api.IEvent;
+import com.ysmjjsy.goya.security.bus.api.IEventListener;
 import com.ysmjjsy.goya.security.bus.enums.ConsumeResult;
 
 /**
@@ -35,4 +37,6 @@ public interface MessageConsumer {
         }
         return ConsumeResult.SUCCESS;
     }
+
+    IEventListener<IEvent> getListener();
 } 

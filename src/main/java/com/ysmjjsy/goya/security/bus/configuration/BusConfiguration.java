@@ -7,7 +7,6 @@ import com.ysmjjsy.goya.security.bus.context.EventListenerBeanPostProcessor;
 import com.ysmjjsy.goya.security.bus.context.MessageTransportContext;
 import com.ysmjjsy.goya.security.bus.core.DefaultEventBus;
 import com.ysmjjsy.goya.security.bus.core.DefaultListenerManage;
-import com.ysmjjsy.goya.security.bus.core.ListenerManage;
 import com.ysmjjsy.goya.security.bus.core.LocalEventBus;
 import com.ysmjjsy.goya.security.bus.decision.DefaultMessageConfigDecisionEngine;
 import com.ysmjjsy.goya.security.bus.decision.MessageConfigDecision;
@@ -77,7 +76,7 @@ public class BusConfiguration {
     }
 
     @Bean
-    public ListenerManage listenerManage(BusProperties busProperties, RoutingStrategyManager routingStrategyManager, MessageTransportContext messageTransportContext) {
+    public DefaultListenerManage defaultListenerManage(BusProperties busProperties, RoutingStrategyManager routingStrategyManager, MessageTransportContext messageTransportContext) {
         return new DefaultListenerManage(busProperties, routingStrategyManager, messageTransportContext);
     }
 
@@ -216,6 +215,24 @@ public class BusConfiguration {
         @ConditionalOnMissingBean
         public RabbitAdmin rabbitAdmin(ConnectionFactory connectionFactory) {
             return new RabbitAdmin(connectionFactory);
+        }
+
+        @Bean
+        public RabbitTemplate rabbitTemplate(ConnectionFactory factory) {
+            RabbitTemplate template = new RabbitTemplate(factory);
+            template.setMandatory(true);
+            template.setReturnsCallback((message) -> {
+                log.error("RabbitMQ message returns: {}", message);
+            });
+
+            template.setConfirmCallback((correlationData, ack, cause) -> {
+                if (!ack) {
+                    System.err.println("ConfirmCallback - 消息未被Broker确认：" + cause);
+                } else {
+                    System.out.println("ConfirmCallback - 消息成功到达Broker");
+                }
+            });
+            return template;
         }
 
         @Bean

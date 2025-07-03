@@ -135,13 +135,6 @@ public class RabbitMQInfoManager extends AbstractListenerManage {
         Queue queue = ensureQueue(queueName, queueDurable, queueAutoDelete, config.getProperties());
         createBinding(routingKey, exchange, queue);
         log.info("create mq infos after exchange {} and queue {}", exchangeName, queueName);
-
-        Integer concurrency = 1;
-        if (MapUtil.isNotEmpty(config.getProperties())) {
-            concurrency = (Integer) config.getProperties().get(RabbitMQConstants.CONCURRENT_CONSUMERS);
-        }
-
-        createListenerContainer(exchangeName, queueName, routingKey, concurrency, null);
     }
 
     @Override
@@ -151,10 +144,16 @@ public class RabbitMQInfoManager extends AbstractListenerManage {
                                      Class<? extends IEvent> event) {
         // 创建消息消费者包装器
         MessageConsumer consumer = new AbstractListenerManage.MessageConsumerWrapper(listener, eventKey, event);
+
+        Integer concurrency = 1;
+        if (MapUtil.isNotEmpty(config.getProperties())) {
+            concurrency = (Integer) config.getProperties().get(RabbitMQConstants.CONCURRENT_CONSUMERS);
+        }
+
         createListenerContainer(config.getRoutingContext().getBusinessDomain(),
                 config.getRoutingContext().getConsumerGroup(),
                 config.getRoutingContext().getRoutingSelector(),
-                1, consumer);
+                concurrency, consumer);
     }
 
     /**
@@ -165,13 +164,11 @@ public class RabbitMQInfoManager extends AbstractListenerManage {
         String subscriptionId = exchangeName + "_" + routingKey;
         try {
 
-
             // 创建消息监听器容器
             SimpleMessageListenerContainer container = new SimpleMessageListenerContainer();
             container.setConnectionFactory(connectionFactory);
             container.setQueueNames(queueName);
             container.setConcurrentConsumers(concurrency);
-            container.setMaxConcurrentConsumers(concurrency * 2);
 
             // 手动确认模式
             container.setAcknowledgeMode(AcknowledgeMode.MANUAL);
@@ -228,12 +225,10 @@ public class RabbitMQInfoManager extends AbstractListenerManage {
         // 创建Exchange
         exchange = createExchange(exchangeName, eventModel, exchangeDurable, exchangeAutoDelete);
 
-        // 声明Exchange
-        rabbitAdmin.declareExchange(exchange);
-
         // 缓存
         exchangeCache.put(exchangeName, exchange);
-
+        // 声明Exchange
+        rabbitAdmin.declareExchange(exchange);
         log.info("Created and cached exchange: {} (type={})", exchangeName,
                 exchange.getType());
 
@@ -252,10 +247,7 @@ public class RabbitMQInfoManager extends AbstractListenerManage {
 
         // 创建Queue
         queue = createQueue(queueName, queueDurable, queueAutoDelete, properties);
-
-        // 声明Queue
         rabbitAdmin.declareQueue(queue);
-
         // 缓存
         queueCache.put(queueName, queue);
 
@@ -312,7 +304,7 @@ public class RabbitMQInfoManager extends AbstractListenerManage {
             return binding;
         }
 
-// 绑定队列到Exchange
+        // 绑定队列到Exchange
         binding = BindingBuilder.bind(queue)
                 .to(exchange)
                 .with(routingKey).noargs();
@@ -378,6 +370,12 @@ public class RabbitMQInfoManager extends AbstractListenerManage {
         public void onMessage(Message message, Channel channel) throws Exception {
             String messageId = message.getMessageProperties().getMessageId();
             long deliveryTag = message.getMessageProperties().getDeliveryTag();
+
+            if (consumer == null || consumer.getListener() == null) {
+                // 拒绝消息并要求重新入队
+                channel.basicNack(deliveryTag, false, true);
+                return;
+            }
 
             TransportEvent transportEvent = buildTransportMessage(message);
             try {

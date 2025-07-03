@@ -18,6 +18,7 @@ import com.ysmjjsy.goya.security.bus.spi.MessageConsumer;
 import com.ysmjjsy.goya.security.bus.spi.SubscriptionConfig;
 import com.ysmjjsy.goya.security.bus.spi.TransportEvent;
 import com.ysmjjsy.goya.security.bus.transport.MessageTransport;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -54,7 +55,8 @@ public abstract class AbstractListenerManage implements ListenerManage {
                 .eventModel(eventModel)
                 .eventKey(eventKey)
                 .transportType(transportType)
-                .eventClass(event.getSimpleName())
+                .eventClassSimpleName(event.getSimpleName())
+                .eventClass(event)
                 .build();
 
         if (Objects.isNull(routingContext)) {
@@ -138,6 +140,8 @@ public abstract class AbstractListenerManage implements ListenerManage {
      * 消息消费者包装器
      */
     protected static class MessageConsumerWrapper implements MessageConsumer {
+
+        @Getter
         private final IEventListener<IEvent> listener;
         private final String eventKey;
         private final MessageSerializer messageSerializer;

@@ -30,7 +30,7 @@ public abstract class AbstractRoutingStrategy implements RoutingStrategy {
     @Override
     public RoutingContext buildSubscriptionContext(SubscriptionConfig config) {
         // 确定业务域
-        return determineRoutingContext(config.getEventClass(), config.getEventKey(), config.getEventModel());
+        return determineRoutingContext(config.getEventClassSimpleName(), config.getEventKey(), config.getEventModel());
     }
 
     /**

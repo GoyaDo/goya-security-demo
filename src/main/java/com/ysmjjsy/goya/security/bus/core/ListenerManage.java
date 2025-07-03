@@ -57,6 +57,13 @@ public interface ListenerManage {
                (Class<? extends IEvent>) Class.forName(transportEvent.getEventClass())
        );
        createMqInfosAfter(subscriptionConfig);
+
+//       subscribeToTransport(
+//               subscriptionConfig,
+//               null,
+//               subscriptionConfig.getRoutingContext().getRoutingSelector(),
+//               subscriptionConfig.getEventClass()
+//       );
    }
 
     /**

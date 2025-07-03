@@ -114,7 +114,7 @@ public class MqParamsUtils {
 
                    @Override
                    public boolean singleActiveConsumer() {
-                       return false;
+                       return true;
                    }
 
                    @Override
@@ -196,6 +196,13 @@ public class MqParamsUtils {
             if (value instanceof Integer){
                 int valueInt = (int) value;
                 if (valueInt == 0){
+                    return;
+                }
+            }
+
+            if (value instanceof Long){
+                long valueInt = (Long) value;
+                if (valueInt == 0L){
                     return;
                 }
             }
